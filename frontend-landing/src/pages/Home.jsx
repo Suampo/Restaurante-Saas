@@ -1,6 +1,7 @@
 // src/pages/Home.jsx
+import { Link } from "react-router-dom";
+
 export default function Home() {
-  // ---- DATA ----
   const services = [
     { title: "Panel de inicio (Admin)", desc: "Resumen operativo: ventas del día, pedidos activos, producto más vendido y curva de últimos 7 días.", img: "/services/01-dashboard.png", alt: "Panel admin" },
     { title: "Mesas y QRs", desc: "Crea/edita mesas, genera un QR por mesa en un clic y mantén todo ordenado con búsqueda.", img: "/services/02-mesas.png", alt: "Mesas y QR" },
@@ -35,11 +36,11 @@ export default function Home() {
 
   return (
     <main className="relative overflow-x-hidden">
-      {/* Keyframes + decor global */}
       <style>{`
         @keyframes marquee { 0% { transform: translateX(0) } 100% { transform: translateX(-50%) } }
         @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
       `}</style>
+
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute -top-40 -left-40 h-[620px] w-[620px] rounded-full bg-emerald-400/15 blur-3xl" />
         <div className="absolute top-1/3 -right-40 h-[520px] w-[520px] rounded-full bg-teal-300/10 blur-3xl" />
@@ -50,8 +51,7 @@ export default function Home() {
               "radial-gradient(#e5e7eb 1px, transparent 1px), radial-gradient(#e5e7eb 1px, transparent 1px)",
             backgroundPosition: "0 0, 8px 8px",
             backgroundSize: "16px 16px",
-            maskImage:
-              "linear-gradient(180deg, transparent, black 8%, black 92%, transparent)",
+            maskImage: "linear-gradient(180deg, transparent, black 8%, black 92%, transparent)",
           }}
         />
       </div>
@@ -76,12 +76,12 @@ export default function Home() {
               <a href="#services" className="rounded-xl bg-emerald-600 px-5 py-3 text-white shadow-sm transition hover:bg-emerald-500">
                 Ver servicios
               </a>
-              <a href="/registro" className="rounded-xl border border-neutral-200 bg-white px-5 py-3 font-medium transition hover:bg-neutral-50">
+              {/* 👉 Link al registro */}
+              <Link to="/registro" className="rounded-xl border border-neutral-200 bg-white px-5 py-3 font-medium transition hover:bg-neutral-50">
                 Crear cuenta
-              </a>
+              </Link>
             </div>
 
-            {/* Bullets */}
             <ul className="mt-6 grid gap-2 text-sm text-neutral-800">
               {[
                 "Multi-tenant por restaurante",
@@ -95,7 +95,6 @@ export default function Home() {
               ))}
             </ul>
 
-            {/* Chips */}
             <div className="mt-6 flex flex-wrap items-center gap-3 text-xs text-neutral-700">
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">Cifrado TLS/SSL</span>
               <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1">Multi-tenant (segregación lógica)</span>
@@ -104,45 +103,46 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Media */}
           <div className={card + " p-4"}>
-  <div className="relative aspect-[16/5] md:aspect-[13/10] overflow-hidden rounded-xl bg-neutral-100">
-    <div className="pointer-events-none absolute inset-0 -z-10 animate-[float_6s_ease-in-out_infinite] bg-[radial-gradient(45%_45%_at_70%_30%,rgba(16,185,129,0.12),transparent_60%)]" />
-    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-    <video
-      className="h-full w-full object-cover"
-      autoPlay
-      loop
-      muted
-      playsInline
-      poster="/services/01-dashboard.png"
-      onError={(e) => {
-        e.currentTarget.outerHTML =
-          '<img src="/services/QR.jpg" alt="Panel" class="h-full w-full object-cover"/>';
-      }}
-    >
-      <source src="/assets/hero.mp4" type="video/mp4" />
-    </video>
-  </div>
+            <div className="relative aspect-[16/5] md:aspect-[13/10] overflow-hidden rounded-xl bg-neutral-100">
+              <div className="pointer-events-none absolute inset-0 -z-10 animate-[float_6s_ease-in-out_infinite] bg-[radial-gradient(45%_45%_at_70%_30%,rgba(16,185,129,0.12),transparent_60%)]" />
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video
+                className="h-full w-full object-cover"
+                autoPlay
+                loop
+                muted
+                playsInline
+                poster="/services/01-dashboard.png"
+                onError={(e) => {
+                  e.currentTarget.outerHTML =
+                    '<img src="/services/QR.jpg" alt="Panel" class="h-full w-full object-cover"/>';
+                }}
+              >
+                <source src="/assets/hero.mp4" type="video/mp4" />
+              </video>
+            </div>
 
-  {/* Franja compacta de confianza (ocupa el espacio que quedó) */}
-  <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:text-sm">
-    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
-      <span>🛡️</span><span>Cifrado TLS/SSL</span>
-    </div>
-    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
-      <span>💳</span><span>Pagos con Culqi</span>
-    </div>
-    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
-      <span>🧾</span><span>Comanda térmica</span>
-    </div>
-    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
-      <span>🔌</span><span>Socket.IO en cocina</span>
-    </div>
-  </div>
-</div>
+            {/* Banda de confianza */}
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:text-sm">
+              <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+                <span>🛡️</span><span>Cifrado TLS/SSL</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+                <span>💳</span><span>Pagos con Culqi</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+                <span>🧾</span><span>Comanda térmica</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+                <span>🔌</span><span>Socket.IO en cocina</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Marquee de integraciones */}
+        {/* Marquee */}
         <div className="mx-auto max-w-6xl px-4 pb-8">
           <div className="overflow-hidden rounded-xl border border-neutral-200/70 bg-white/80 backdrop-blur">
             <div className="flex whitespace-nowrap [animation:marquee_22s_linear_infinite]">
@@ -264,9 +264,10 @@ export default function Home() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <a href="/registro" className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-3 text-white hover:bg-neutral-800">
+                  {/* 👉 Link al registro */}
+                  <Link to="/registro" className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-3 text-white hover:bg-neutral-800">
                     Empezar <span aria-hidden>→</span>
-                  </a>
+                  </Link>
                 </div>
               </div>
             </div>
@@ -288,7 +289,7 @@ export default function Home() {
 
                 <p className="mt-6 text-sm text-neutral-600">
                   ¿Te interesa? Marca la opción <em>“Avísenme del Plan Premium”</em> en el consentimiento
-                  o <a href="/contacto" className="underline">escríbenos</a>.
+                  o <Link to="/contacto" className="underline">escríbenos</Link>.
                 </p>
 
                 <button
@@ -304,8 +305,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-     
 
       {/* FAQ */}
       <section id="faq" className="relative py-5">
@@ -332,21 +331,22 @@ export default function Home() {
           <h3 className="text-xl font-bold">¿Listo para modernizar tu operación?</h3>
           <p className="mt-2 text-white/90">
             Te ayudamos con el onboarding (SSL, QR, impresora y pagos).{" "}
-            <a href="/contacto" className="underline">Contáctanos</a>.
+            <Link to="/contacto" className="underline">Contáctanos</Link>.
           </p>
           <div className="mt-5 flex items-center justify-center gap-3">
-            <a
-              href="/registro"
+            {/* 👉 Link al registro */}
+            <Link
+              to="/registro"
               className="rounded-xl bg-white px-5 py-3 font-medium text-emerald-700 hover:bg-emerald-50"
             >
               Crear cuenta
-            </a>
-            <a
-              href="/contacto"
+            </Link>
+            <Link
+              to="/contacto"
               className="rounded-xl border border-white/70 bg-transparent px-5 py-3 font-medium hover:bg-white/10"
             >
               Hablar con ventas
-            </a>
+            </Link>
           </div>
         </div>
       </section>
