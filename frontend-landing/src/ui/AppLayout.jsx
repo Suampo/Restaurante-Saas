@@ -1,3 +1,4 @@
+// src/ui/AppLayout.jsx
 import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import BackgroundGlows from "./BackgroundGlows";
@@ -21,39 +22,50 @@ function ScrollToHash() {
 function Nav() {
   const base = "text-sm text-neutral-700 hover:text-black";
   const active = "font-semibold text-black";
+
   return (
-    <header className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <NavLink to="/" className="text-lg font-bold tracking-tight">
+    <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
+      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-3">
+        {/* Marca fija: no se encoge */}
+        <NavLink to="/" className="shrink-0 text-lg font-bold tracking-tight">
           MikhunApp
         </NavLink>
 
-        <nav className="flex items-center gap-4">
-          <NavLink to="/" end className={({ isActive }) => (isActive ? active : base)}>
-   Inicio
- </NavLink>
-          <NavLink to="/#services" className={({ isActive }) => (isActive ? active : base)}>
-            Servicios
-          </NavLink>
-          <NavLink to="/#features" className={({ isActive }) => (isActive ? active : base)}>
-            Funciones
-          </NavLink>
-          <NavLink to="/#prices" className={({ isActive }) => (isActive ? active : base)}>
-            Precios
-          </NavLink>
-          <NavLink to="/contacto" className={({ isActive }) => (isActive ? active : base)}>
-            Contacto
-          </NavLink>
-
-          {/* CTA visibles */}
-          <Link
-            to="/registro"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
+        {/* Contenedor elástico del nav que NO expande el ancho de la página */}
+        <div className="min-w-0 grow">
+          <nav
+            className="
+              flex items-center gap-4 text-sm
+              overflow-x-auto whitespace-nowrap
+              sm:overflow-visible
+              [-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden
+            "
           >
-            Crear cuenta
-          </Link>
-          
-        </nav>
+            <NavLink to="/" end className={({ isActive }) => (isActive ? active : base)}>
+              Inicio
+            </NavLink>
+            <NavLink to="/#services" className={({ isActive }) => (isActive ? active : base)}>
+              Servicios
+            </NavLink>
+            <NavLink to="/#features" className={({ isActive }) => (isActive ? active : base)}>
+              Funciones
+            </NavLink>
+            <NavLink to="/#prices" className={({ isActive }) => (isActive ? active : base)}>
+              Precios
+            </NavLink>
+            <NavLink to="/contacto" className={({ isActive }) => (isActive ? active : base)}>
+              Contacto
+            </NavLink>
+
+            {/* CTA: pegado a la derecha del carril y sin encogerse */}
+            <Link
+              to="/registro"
+              className="ml-auto shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-white font-medium hover:bg-emerald-500"
+            >
+              Crear cuenta
+            </Link>
+          </nav>
+        </div>
       </div>
     </header>
   );
@@ -99,7 +111,7 @@ function Footer() {
 export default function AppLayout() {
   return (
     <div className="min-h-svh bg-neutral-50 text-neutral-900 relative">
-      <BackgroundGlows />   {/* 👈 glows en toda la página */}
+      <BackgroundGlows />
       <ScrollToHash />
       <Nav />
       <Outlet />
