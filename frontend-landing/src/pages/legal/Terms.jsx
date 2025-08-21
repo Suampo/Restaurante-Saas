@@ -9,7 +9,7 @@ export default function Terms() {
             <strong>Última actualización:</strong> 19/08/2025
           </p>
           <p>
-            <strong>Titular del servicio:</strong> [RAZÓN SOCIAL], RUC [RUC], domicilio en Lima - Ate - Vitarte Los duraznos Ceres  (“MikhunApp”, “nosotros”).
+            <strong>Titular del servicio:</strong> Gerimi Angelo Oroncoy Cordova, RUC 10778055070 , domicilio en Lima - Ate - Vitarte Los duraznos Ceres  (“MikhunApp”, “nosotros”).
           </p>
 
           <h2 className="mt-6 text-base font-semibold">1. Objeto y alcance</h2>

@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-
+// src/pages/Home.jsx
 export default function Home() {
   // ---- DATA ----
   const services = [
@@ -30,23 +29,6 @@ export default function Home() {
     { q: "¿Necesito SSL o dominio?", a: "Te damos un subdominio *.mikhunapp.com con SSL gratis. Si prefieres tu dominio propio, también te ayudamos a configurarlo." },
     { q: "¿Cómo se cobra el servicio?", a: "Plan Básico con todo incluido (mensual o anual con descuento). Add-ons opcionales bajo demanda." },
   ];
-
-  // KPI counter
-  function Counter({ to, duration = 1.2, prefix = "", suffix = "" }) {
-    const [val, setVal] = useState(0);
-    useEffect(() => {
-      const startTime = performance.now();
-      const step = (t) => {
-        const p = Math.min(1, (t - startTime) / (duration * 1000));
-        const eased = 1 - Math.pow(1 - p, 3);
-        setVal(Math.round(to * eased));
-        if (p < 1) requestAnimationFrame(step);
-      };
-      const raf = requestAnimationFrame(step);
-      return () => cancelAnimationFrame(raf);
-    }, [to, duration]);
-    return <span>{prefix}{val.toLocaleString()}{suffix}</span>;
-  }
 
   const card =
     "rounded-2xl bg-white/90 backdrop-blur border border-neutral-200/70 shadow-sm hover:shadow-md transition";
@@ -104,7 +86,7 @@ export default function Home() {
               {[
                 "Multi-tenant por restaurante",
                 "QRs por mesa y estados de pedido",
-                "Integración con Culqi (tarjeta/Yape)",
+                "Integración de pagons online (tarjeta/Yape)",
                 "Conexión de impresora térmica",
               ].map((t) => (
                 <li key={t} className="flex items-center gap-2">
@@ -113,51 +95,51 @@ export default function Home() {
               ))}
             </ul>
 
-            {/* Chips (sin prometer backups) */}
+            {/* Chips */}
             <div className="mt-6 flex flex-wrap items-center gap-3 text-xs text-neutral-700">
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">Cifrado TLS/SSL</span>
               <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1">Multi-tenant (segregación lógica)</span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">Pagos con Culqi</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">Pagos online</span>
               <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1">Exportación bajo solicitud</span>
             </div>
           </div>
 
-          {/* Media card */}
           <div className={card + " p-4"}>
-            <div className="relative aspect-video overflow-hidden rounded-xl bg-neutral-100">
-              <div className="pointer-events-none absolute inset-0 -z-10 animate-[float_6s_ease-in-out_infinite] bg-[radial-gradient(45%_45%_at_70%_30%,rgba(16,185,129,0.12),transparent_60%)]" />
-              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video
-                className="h-full w-full object-cover"
-                autoPlay
-                loop
-                muted
-                playsInline
-                poster="/services/01-dashboard.png"
-                onError={(e) => {
-                  e.currentTarget.outerHTML =
-                    '<img src="/services/01-dashboard.png" alt="Panel" class="h-full w-full object-cover"/>';
-                }}
-              >
-                <source src="/assets/hero.mp4" type="video/mp4" />
-              </video>
-            </div>
+  <div className="relative aspect-[16/5] md:aspect-[13/10] overflow-hidden rounded-xl bg-neutral-100">
+    <div className="pointer-events-none absolute inset-0 -z-10 animate-[float_6s_ease-in-out_infinite] bg-[radial-gradient(45%_45%_at_70%_30%,rgba(16,185,129,0.12),transparent_60%)]" />
+    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+    <video
+      className="h-full w-full object-cover"
+      autoPlay
+      loop
+      muted
+      playsInline
+      poster="/services/01-dashboard.png"
+      onError={(e) => {
+        e.currentTarget.outerHTML =
+          '<img src="/services/QR.jpg" alt="Panel" class="h-full w-full object-cover"/>';
+      }}
+    >
+      <source src="/assets/hero.mp4" type="video/mp4" />
+    </video>
+  </div>
 
-            <dl className="mt-4 grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-lg bg-emerald-50/80 border border-emerald-200 p-3">
-                <dt className="text-xs text-emerald-700">Mesas atendidas</dt>
-                <dd className="text-lg font-semibold text-emerald-900">+<Counter to={10000} /></dd>
-              </div>
-              <div className="rounded-lg bg-emerald-50/80 border border-emerald-200 p-3">
-                <dt className="text-xs text-emerald-700">Pedidos procesados</dt>
-                <dd className="text-lg font-semibold text-emerald-900">+<Counter to={120000} /></dd>
-              </div>
-              <div className="rounded-lg bg-emerald-50/80 border border-emerald-200 p-3">
-                <dt className="text-xs text-emerald-700">Tiempo/mesa</dt>
-                <dd className="text-lg font-semibold text-emerald-900">-<Counter to={18} suffix="%" /></dd>
-              </div>
-            </dl>
-          </div>
+  {/* Franja compacta de confianza (ocupa el espacio que quedó) */}
+  <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:text-sm">
+    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+      <span>🛡️</span><span>Cifrado TLS/SSL</span>
+    </div>
+    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+      <span>💳</span><span>Pagos con Culqi</span>
+    </div>
+    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+      <span>🧾</span><span>Comanda térmica</span>
+    </div>
+    <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
+      <span>🔌</span><span>Socket.IO en cocina</span>
+    </div>
+  </div>
+</div>
         </div>
 
         {/* Marquee de integraciones */}
@@ -196,39 +178,40 @@ export default function Home() {
           </div>
         </div>
       </section>
-{/* SERVICES */}
-<section id="services" className="relative py-16 overflow-hidden">
-  {/* Fondo seguro, centrado y recortado dentro de la sección */}
-  <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-    <div className="absolute left-1/2 top-0 h-full w-[140%] -translate-x-1/2 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/40" />
-  </div>
 
-  <div className="mx-auto max-w-6xl px-4">
-    <div className="flex items-end justify-between">
-      <h2 className="text-2xl font-bold">Nuestros servicios</h2>
-    </div>
-    <p className="mt-2 text-sm text-neutral-600">
-      Todo lo que necesitas: panel de administración, gestión de mesas y QRs, menú digital/combos y panel de cocina en tiempo real.
-    </p>
+      {/* SERVICES */}
+      <section id="services" className="relative py-16 overflow-hidden">
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute left-1/2 top-0 h-full w-[140%] -translate-x-1/2 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/40" />
+        </div>
 
-    <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {services.map((s) => (
-        <figure key={s.title} className={card + " overflow-hidden group bg-white/95"}>
-          <img
-            src={s.img}
-            alt={s.alt}
-            className="h-44 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-            loading="lazy"
-          />
-          <figcaption className="p-4">
-            <div className="font-semibold">{s.title}</div>
-            <p className="mt-1 text-sm text-neutral-600">{s.desc}</p>
-          </figcaption>
-        </figure>
-      ))}
-    </div>
-  </div>
-</section>
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="flex items-end justify-between">
+            <h2 className="text-2xl font-bold">Nuestros servicios</h2>
+          </div>
+          <p className="mt-2 text-sm text-neutral-600">
+            Todo lo que necesitas: panel de administración, gestión de mesas y QRs, menú digital/combos y panel de cocina en tiempo real.
+          </p>
+
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {services.map((s) => (
+              <figure key={s.title} className={card + " overflow-hidden group bg-white/95"}>
+                <img
+                  src={s.img}
+                  alt={s.alt}
+                  className="h-44 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                  loading="lazy"
+                />
+                <figcaption className="p-4">
+                  <div className="font-semibold">{s.title}</div>
+                  <p className="mt-1 text-sm text-neutral-600">{s.desc}</p>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* FEATURES */}
       <section id="features" className="relative py-16">
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-neutral-50 via-white to-emerald-50/40" />
@@ -245,7 +228,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* PRICING (ajustado: items-start, h-full y gradiente suave) */}
+      {/* PRICING */}
       <section id="prices" className="relative py-16">
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-[radial-gradient(60%_60%_at_50%_0%,rgba(16,185,129,0.10),transparent_60%)]" />
@@ -254,11 +237,9 @@ export default function Home() {
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="text-2xl font-bold">Planes y precios</h2>
 
-          {/* 👇 evita estirar columnas */}
           <div className="mt-6 grid gap-6 md:grid-cols-2 items-start">
             {/* Básico */}
             <div className="rounded-3xl p-[1px] bg-gradient-to-br from-emerald-300/50 via-emerald-400/50 to-teal-400/50">
-              {/* 👇 el blanco llena la altura */}
               <div className="h-full rounded-3xl bg-white p-6">
                 <div className="text-lg font-semibold">Básico</div>
                 <div className="text-sm text-neutral-600">Incluye todo para operar desde el día 1</div>
@@ -273,7 +254,7 @@ export default function Home() {
                   <li>• QRs por mesa y estados de pedido</li>
                   <li>• Panel de cocina en tiempo real</li>
                   <li>• Comanda térmica (Raspberry) incluida</li>
-                  <li>• Pagos con Culqi u otra pasarela (test/producción)</li>
+                  <li>• Pagos online (test/producción)</li>
                   <li>• Soporte estándar L–V</li>
                 </ul>
 
@@ -324,28 +305,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* TESTIMONIOS */}
-      <section className="relative py-16">
-        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-tr from-neutral-50 to-white" />
-        <div className="mx-auto max-w-6xl px-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">✨ Casos</div>
-          <h2 className="mt-3 text-2xl font-bold">Lo que dicen nuestros clientes</h2>
-          <div className="mt-6 grid gap-5 md:grid-cols-2">
-            {[
-              { name: "Parrillas Don Lucho", text: "Implementamos QR por mesa y pago con Yape. Disminuyeron los errores de comanda y ganamos rotación." },
-              { name: "Cevichería La Marina", text: "El panel de cocina en tiempo real nos ordenó la salida. La conciliación con Culqi fue directa." },
-            ].map((t) => (
-              <blockquote key={t.name} className={card + " p-4 bg-white/95"}>
-                <p className="text-neutral-700">“{t.text}”</p>
-                <footer className="mt-3 text-sm text-neutral-500">— {t.name}</footer>
-              </blockquote>
-            ))}
-          </div>
-        </div>
-      </section>
+     
 
       {/* FAQ */}
-      <section id="faq" className="relative py-16">
+      <section id="faq" className="relative py-5">
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
           <div className="absolute inset-0 opacity-[0.16] bg-[radial-gradient(#d1d5db_1px,transparent_1px)] [background-size:20px_20px]" />
         </div>
@@ -363,7 +326,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA final con fondo visible y alto contraste */}
+      {/* CTA final */}
       <section className="relative isolate border-t border-neutral-200 py-16 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500">
         <div className="mx-auto max-w-6xl px-4 text-center text-white">
           <h3 className="text-xl font-bold">¿Listo para modernizar tu operación?</h3>

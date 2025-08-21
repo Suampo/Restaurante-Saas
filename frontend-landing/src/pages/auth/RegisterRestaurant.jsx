@@ -1,47 +1,91 @@
 // src/pages/auth/RegisterRestaurant.jsx
 import { useState } from "react";
-// 👇 corrige el import: este archivo está en src/pages/auth y el modal en src/pages/legal
+import { useNavigate } from "react-router-dom";
 import ConsentModal from "../legal/ConsentModal.jsx";
 
 export default function RegisterRestaurant() {
-  const [form, setForm] = useState({ nombre: "", email: "", contacto: "", telefono: "" });
+  const nav = useNavigate();
+
+  // form + errores
+  const [form, setForm] = useState({
+    nombre: "",
+    email: "",
+    contacto: "",
+    telefono: "",
+  });
+  const [errors, setErrors] = useState({});
+
+  // consentimiento + flujo
   const [consent, setConsent] = useState({ required: false, marketing: false });
   const [openConsent, setOpenConsent] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // ---------- helpers ----------
+  const setField = (key, value) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!form.nombre.trim()) e.nombre = "Ingresa el nombre del restaurante.";
+    if (!form.contacto.trim()) e.contacto = "Ingresa el nombre del contacto.";
+    const phone = form.telefono.replace(/\D/g, "");
+    if (!phone) e.telefono = "Ingresa un teléfono.";
+    else if (phone.length < 9) e.telefono = "Teléfono inválido (mín. 9 dígitos).";
+    if (!form.email.trim()) e.email = "Ingresa un correo electrónico.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(form.email))
+      e.email = "Correo no válido.";
+
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
   const submitToApi = async () => {
     setLoading(true);
     try {
-      const payload = { ...form, consent_required: consent.required, consent_marketing: consent.marketing };
-      console.log("submit", payload);
-      alert("Registro enviado ✨");
-    } catch (e) {
-      console.error(e);
-      alert("No se pudo registrar");
+      // Aquí iría tu POST real si lo necesitas.
+      // Por ahora pasamos a la selección de planes con el form en el state.
+      nav("/registro/planes", { state: { form } });
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSubmit = (e) => {
-    e?.preventDefault?.();
+    e.preventDefault();
+    // 1) Validación local
+    if (!validate()) return;
+
+    // 2) Consentimiento obligatorio
     if (!consent.required) {
       setOpenConsent(true);
       setPendingSubmit(true);
       return;
     }
+
+    // 3) Todo OK → continuar
     submitToApi();
   };
 
   const handleConsentConfirm = ({ marketing }) => {
     setConsent({ required: true, marketing: !!marketing });
     setOpenConsent(false);
+
     if (pendingSubmit) {
       setPendingSubmit(false);
       submitToApi();
     }
   };
+
+  // estilos condicionales de error
+  const inputClass = (hasError) =>
+    `mt-1 w-full rounded-xl border bg-white px-3 py-2 outline-none transition
+     ${hasError ? "border-red-400 focus:border-red-500" : "border-neutral-300 focus:border-emerald-500"}`;
 
   return (
     <main className="relative overflow-hidden">
@@ -55,47 +99,80 @@ export default function RegisterRestaurant() {
           Te tomará menos de 2 minutos. Luego eliges tu plan y pasas al pago.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 grid gap-5">
+        <form onSubmit={handleSubmit} className="mt-8 grid gap-5" noValidate>
+          {/* Nombre */}
           <div>
-            <label className="text-sm font-medium">Nombre del restaurante</label>
+            <label htmlFor="nombre" className="text-sm font-medium">
+              Nombre del restaurante
+            </label>
             <input
-              className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+              id="nombre"
+              required
               placeholder="Ej: La Esquina de Juan"
+              className={inputClass(!!errors.nombre)}
               value={form.nombre}
-              onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+              onChange={(e) => setField("nombre", e.target.value)}
             />
+            {errors.nombre && (
+              <p className="mt-1 text-xs text-red-600">{errors.nombre}</p>
+            )}
           </div>
 
+          {/* Contacto + Teléfono */}
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <label className="text-sm font-medium">Contacto</label>
+              <label htmlFor="contacto" className="text-sm font-medium">
+                Contacto
+              </label>
               <input
-                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+                id="contacto"
+                required
                 placeholder="Nombre y apellido"
+                className={inputClass(!!errors.contacto)}
                 value={form.contacto}
-                onChange={(e) => setForm((f) => ({ ...f, contacto: e.target.value }))}
+                onChange={(e) => setField("contacto", e.target.value)}
               />
+              {errors.contacto && (
+                <p className="mt-1 text-xs text-red-600">{errors.contacto}</p>
+              )}
             </div>
+
             <div>
-              <label className="text-sm font-medium">Teléfono</label>
+              <label htmlFor="telefono" className="text-sm font-medium">
+                Teléfono
+              </label>
               <input
-                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+                id="telefono"
+                required
+                inputMode="tel"
                 placeholder="+51 9xx xxx xxx"
+                className={inputClass(!!errors.telefono)}
                 value={form.telefono}
-                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                onChange={(e) => setField("telefono", e.target.value)}
               />
+              {errors.telefono && (
+                <p className="mt-1 text-xs text-red-600">{errors.telefono}</p>
+              )}
             </div>
           </div>
 
+          {/* Email */}
           <div>
-            <label className="text-sm font-medium">Email</label>
+            <label htmlFor="email" className="text-sm font-medium">
+              Email
+            </label>
             <input
+              id="email"
+              required
               type="email"
-              className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
               placeholder="tucorreo@restaurante.com"
+              className={inputClass(!!errors.email)}
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) => setField("email", e.target.value)}
             />
+            {errors.email && (
+              <p className="mt-1 text-xs text-red-600">{errors.email}</p>
+            )}
           </div>
 
           <p className="text-xs text-neutral-600">
@@ -106,7 +183,8 @@ export default function RegisterRestaurant() {
               className="underline decoration-emerald-600 underline-offset-2 hover:text-black"
             >
               Ver y aceptar
-            </button>.
+            </button>
+            .
           </p>
 
           <div>

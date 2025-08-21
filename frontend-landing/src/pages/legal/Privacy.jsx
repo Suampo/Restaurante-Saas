@@ -9,7 +9,7 @@ export default function Privacy() {
             <strong>Última actualización:</strong> 19/08/2025
           </p>
           <p>
-            <strong>Titular / Responsable (para datos B2B):</strong> [RAZÓN SOCIAL], RUC [RUC], domicilio en Lima - Ate - Ceres 3ra etapa Los duraznos. 
+            <strong>Titular / Responsable (para datos B2B):</strong> Gerimi Angelo Oroncoy Cordova, RUC 10778055070, domicilio en Lima - Ate - Ceres 3ra etapa Los duraznos. 
             <br />
             <strong>Correo de privacidad:</strong> mikhunappfood@gmail.com
           </p>

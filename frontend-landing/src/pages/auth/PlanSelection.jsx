@@ -1,9 +1,18 @@
 // src/pages/auth/PlanSelection.jsx
+import { useEffect } from "react";                       // ✅ useEffect viene de react
 import { useLocation, useNavigate, Link } from "react-router-dom";
 
 export default function PlanSelection() {
   const { state } = useLocation(); // { form, choices }
   const nav = useNavigate();
+
+  // Protección suave: si llegan sin haber pasado por el registro, los mandamos a /registro
+  useEffect(() => {
+    if (!state?.form) nav("/registro");
+  }, [state, nav]);
+
+  // Evita parpadeo mientras redirige
+  if (!state?.form) return null;
 
   const chooseBasic = () => {
     nav("/registro/pago", {
@@ -35,7 +44,7 @@ export default function PlanSelection() {
               <li>• QRs por mesa y estados de pedido</li>
               <li>• Panel de cocina en tiempo real</li>
               <li>• Comanda térmica (Raspberry) incluida</li>
-              <li>• Pagos con Culqi u otra pasarela de Pago(test/producción)</li>
+              <li>• Pagos con Culqi u otra pasarela de Pago (test/producción)</li>
               <li>• Reporte básico y export CSV</li>
               <li>• Soporte estándar 7/7</li>
             </ul>

@@ -1,17 +1,72 @@
 // src/pages/auth/Checkout.jsx
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "../../lib/supabaseClient";
+
+// Password temporal simple (recuerda luego hashearlo en el backend/BD)
+function genTempPassword(len = 10) {
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join("");
+}
 
 export default function Checkout() {
-  const { state } = useLocation(); // { form, choices, plan }
+  const { state } = useLocation(); // { form: { nombre, contacto, telefono, email }, plan }
   const nav = useNavigate();
+  const [saving, setSaving] = useState(false);
 
-  const proceed = () => {
-    // Aquí vas a abrir Culqi cuando tengas las llaves.
-    alert("Redirigiremos a Culqi cuando actives tus llaves. Por ahora es un placeholder.");
-    nav("/"); // o a un /gracias
+  const plan = state?.plan || { id: "basic", name: "Básico", price: 300 };
+  const restaurantName = state?.form?.nombre;
+
+  const proceed = async () => {
+    if (!state?.form?.nombre || !state?.form?.contacto || !state?.form?.email) {
+      alert("Completa nombre del restaurante, contacto y email.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const tempPass = genTempPassword();
+
+      // 👇 Llamamos a TU función RPC para crear restaurante y usuario admin (tenant)
+      const { data, error } = await supabase.rpc(
+        "register_restaurant_and_admin",
+        {
+          p_restaurant_name: state.form.nombre,        // nombre del restaurante (tenant)
+          p_phone: state.form.telefono ?? null,
+          p_contact_name: state.form.contacto,         // nombre del admin
+          p_email: state.form.email,
+          p_password: tempPass,                        // temporal
+          p_role: "admin",
+        }
+      );
+
+      if (error) {
+        console.error(error);
+        alert("No se pudo registrar. Revisa que el email no exista y los permisos de la función.");
+        return;
+      }
+
+      const { user_id, restaurant_id } = (Array.isArray(data) ? data[0] : data) || {};
+      if (!user_id || !restaurant_id) {
+        alert("Registro incompleto. Verifica la función RPC.");
+        return;
+      }
+
+      alert(
+        `Listo 🎉\nRestaurante (tenant_id): ${restaurant_id}\nUsuario admin: ${user_id}\n(Password temporal: ${tempPass})`
+      );
+
+      // Aquí abrirías Culqi. Por ahora, volvemos al inicio:
+      nav("/");
+    } catch (e) {
+      console.error(e);
+      alert("Ocurrió un error inesperado.");
+    } finally {
+      setSaving(false);
+    }
   };
-
-  const plan = state?.plan || { name: "Básico", price: 300 };
 
   return (
     <main className="py-12">
@@ -30,18 +85,19 @@ export default function Checkout() {
             <div className="text-2xl font-bold">S/ {plan.price}</div>
           </div>
 
-          {state?.form?.restaurant && (
+          {restaurantName && (
             <div className="mt-4 text-sm">
               <div className="font-semibold">Restaurante</div>
-              <div className="text-neutral-700">{state.form.restaurant}</div>
+              <div className="text-neutral-700">{restaurantName}</div>
             </div>
           )}
 
           <button
             onClick={proceed}
-            className="mt-6 w-full rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500"
+            disabled={saving}
+            className="mt-6 w-full rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
           >
-            Continuar a pago (Culqi)
+            {saving ? "Guardando…" : "Continuar a pago (Culqi)"}
           </button>
         </div>
 

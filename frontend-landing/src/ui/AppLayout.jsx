@@ -80,7 +80,7 @@ function Footer() {
         <div>
           <div className="font-semibold">Empresa</div>
           <p className="mt-2 text-sm text-neutral-600">
-            Razón social · RUC 00000000000<br/>
+            Razón social · RUC 10778055070<br/>
             Lima, Lima, Perú<br/>
             mikhunappfood@gmail.com · +51 950 809 208
           </p>
