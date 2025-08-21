@@ -130,7 +130,7 @@ export default function Home() {
                 <span>🛡️</span><span>Cifrado TLS/SSL</span>
               </div>
               <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
-                <span>💳</span><span>Pagos con Culqi</span>
+                <span>💳</span><span>Pagos online</span>
               </div>
               <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/70 px-3 py-2">
                 <span>🧾</span><span>Comanda térmica</span>

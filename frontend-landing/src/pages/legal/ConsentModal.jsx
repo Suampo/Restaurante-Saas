@@ -49,7 +49,7 @@ export default function ConsentModal({
       >
         <h2 className="text-xl font-bold">Tratamiento de Datos — Consentimiento</h2>
         <p className="mt-1 text-sm text-neutral-600">
-          Al continuar, autorizas a <strong>[RAZÓN SOCIAL]</strong> a tratar tus datos
+          Al continuar, autorizas a <strong>Gerimi Angelo Oroncoy Cordova [ Mikhunappfood]</strong> a tratar tus datos
           personales conforme a nuestra{" "}
           <a className="underline" href="/legal/privacidad" target="_blank" rel="noreferrer">
             Política de Privacidad
