@@ -14,8 +14,8 @@ export default function Category() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      <button onClick={() => nav(-1)} className="mb-3 text-sm text-blue-600 hover:underline">← Volver</button>
-      <h1 className="mb-3 text-xl font-bold">{cat?.nombre ?? "Categoría"}</h1>
+      <button onClick={() => nav(-1)} className="mb-3 text-sm text-neutral-900 hover:underline">← Volver</button>
+      <h1 className="mb-3 text-xl font-bold text-white">{cat?.nombre ?? "Categoría"}</h1>
 
       {items.length === 0 ? (
         <div className="rounded-lg border p-6 text-neutral-600">Sin productos en esta categoría.</div>
@@ -23,13 +23,14 @@ export default function Category() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {items.map((item) => (
             <ProductCard
-              key={item.id}
-              item={item}
-              onAdd={(it) => window.dispatchEvent(new CustomEvent("cart:add", { detail: { item: it } }))}
-              absolute={absolute}
-              fallbackImg={FALLBACK_IMG}
-              formatPEN={formatPEN}
-            />
+  key={item.id}
+  item={item}
+  onAdd={(it) => window.dispatchEvent(new CustomEvent("cart:add", { detail: { item: it } }))}
+  absolute={absolute}
+  fallbackImg={FALLBACK_IMG}
+  formatPEN={formatPEN}
+  variant="hero"     // ← asegura el modo con imagen a full
+/>
           ))}
         </div>
       )}

@@ -6,7 +6,7 @@ export default function Consent() {
 
         <section className="mt-6 space-y-4 text-sm leading-6 text-neutral-700">
           <p>
-            Al marcar “Acepto” o continuar usando el menú/panel, autorizo a <strong>[RAZÓN SOCIAL]</strong> a
+            Al marcar “Acepto” o continuar usando el menú/panel, autorizo a <strong>Gerimi Angelo Oroncoy Cordova [Mikhunappfood]</strong> a
             tratar mis datos personales para:
           </p>
           <ul className="list-disc pl-5">

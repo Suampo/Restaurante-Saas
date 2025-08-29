@@ -23,7 +23,12 @@ export default function Combo() {
   };
 
   const Tile = ({data, active, onClick}) => (
-    <button onClick={onClick} className={`rounded-xl border p-2 text-left hover:bg-neutral-50 ${active ? "ring-2 ring-emerald-500" : "border-neutral-200"}`}>
+   <button
+     onClick={onClick}
+     className={`rounded-xl border p-2 text-left bg-white text-neutral-900 hover:bg-neutral-50 ${
+       active ? "ring-2 ring-emerald-500" : "border-neutral-200"
+     }`}
+   >
       <img src={absolute(data.imagen_url) || FALLBACK_IMG} onError={(e)=>{e.currentTarget.src=FALLBACK_IMG}} className="h-28 w-full object-cover rounded-lg" />
       <div className="mt-1 font-medium">{data.nombre}</div>
     </button>
@@ -31,16 +36,16 @@ export default function Combo() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      <button onClick={() => nav(-1)} className="mb-3 text-sm text-blue-600 hover:underline">← Volver</button>
-      <h1 className="mb-1 text-xl font-bold">{combo?.nombre || "Menú del día"}</h1>
-      <p className="text-neutral-600 mb-4">Elige 1 entrada + 1 fondo — {formatPEN(combo?.precio || 0)}</p>
+      <button onClick={() => nav(-1)} className="mb-3 text-sm text-neutral-900 hover:underline">← Volver</button>
+      <h1 className="mb-1 text-xl text-neutral-900">{combo?.nombre || "Menú del día"}</h1>
+      <p className="text-neutral-900 hover:underline">Elige 1 entrada + 1 fondo — {formatPEN(combo?.precio || 0)}</p>
 
-      <h3 className="mt-4 mb-2 font-semibold">Entradas</h3>
+      <h3 className="mt-4 mb-2 text-neutral-900">Entradas</h3>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {entradas.map(e => <Tile key={e.id} data={e} active={entrada?.id===e.id} onClick={()=>setEntrada(e)} />)}
       </div>
 
-      <h3 className="mt-6 mb-2 font-semibold">Fondos</h3>
+      <h3 className="mt-6 mb-2 text-neutral-900">Fondos</h3>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {fondos.map(f => <Tile key={f.id} data={f} active={fondo?.id===f.id} onClick={()=>setFondo(f)} />)}
       </div>

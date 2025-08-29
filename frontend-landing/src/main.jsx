@@ -18,7 +18,7 @@ import Terms from "./pages/legal/Terms.jsx";
 import Privacy from "./pages/legal/Privacy.jsx";
 import Returns from "./pages/legal/Returns.jsx";
 import Consent from "./pages/legal/Consent.jsx";
-
+import ClaimsBook from "./pages/legal/ClaimsBook.jsx";
 const router = createBrowserRouter([
   {
     element: <AppLayout />,
@@ -37,7 +37,7 @@ const router = createBrowserRouter([
       { path: "/legal/privacidad", element: <Privacy /> },
       { path: "/legal/devoluciones", element: <Returns /> },
       { path: "/legal/consentimiento", element: <Consent /> },
-
+{ path: "/libro-de-reclamaciones", element: <ClaimsBook /> },
       { path: "*", element: <NotFound /> },
     ],
   },

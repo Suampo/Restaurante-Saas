@@ -6,7 +6,7 @@ export default function CartBar({ itemCount, total, formatPEN, onOpenCart, onSen
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/90 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-20 border-t text-neutral-900 bg-white/90 backdrop-blur"
       // para iPhone con notch / safe area
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >

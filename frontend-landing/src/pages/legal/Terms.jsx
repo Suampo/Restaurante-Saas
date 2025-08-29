@@ -9,7 +9,7 @@ export default function Terms() {
             <strong>Última actualización:</strong> 19/08/2025
           </p>
           <p>
-            <strong>Titular del servicio:</strong> [RAZÓN SOCIAL], RUC [RUC], domicilio en Lima - Ate - Vitarte Los duraznos Ceres  (“MikhunApp”, “nosotros”).
+            <strong>Titular del servicio:</strong> Gerimi Angelo Oroncoy Cordova, RUC 10778055070 , domicilio en Lima - Ate - Vitarte Los duraznos Ceres  (“MikhunApp”, “nosotros”).
           </p>
 
           <h2 className="mt-6 text-base font-semibold">1. Objeto y alcance</h2>
@@ -115,7 +115,7 @@ export default function Terms() {
 
           <h2 className="mt-6 text-base font-semibold">10. Contenidos y propiedad intelectual</h2>
           <p>
-            El software, marcas y diseños de Mikhunapp son de [RAZÓN SOCIAL]. El Restaurante conserva titularidad sobre su contenido (menú, fotos, logos) y nos otorga una licencia no exclusiva para usarlo a efectos de operar la plataforma. El feedback que nos proporciones podrá ser utilizado libremente para mejorar el servicio, sin obligación de reconocimiento o pago.
+            El software, marcas y diseños de Mikhunapp son de Gerimi Angelo Oroncoy Cordova. El Restaurante conserva titularidad sobre su contenido (menú, fotos, logos) y nos otorga una licencia no exclusiva para usarlo a efectos de operar la plataforma. El feedback que nos proporciones podrá ser utilizado libremente para mejorar el servicio, sin obligación de reconocimiento o pago.
           </p>
 
           <h3 className="mt-4 text-sm font-semibold">10.1 Uso de marcas y referencias</h3>

@@ -7,18 +7,44 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencias / builds (cualquier paquete en el monorepo)
 node_modules
+**/node_modules
 dist
+**/dist
 dist-ssr
 *.local
+.vite
+.cache
+coverage
+.eslintcache
+*.tsbuildinfo
+.next
+out
+.turbo
 
-# Editor directories and files
+# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
+desktop.ini
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# ⚠️ Secretos (NO subir claves/credenciales)
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+*.cer
+certificado*
+credenciales.json

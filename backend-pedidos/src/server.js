@@ -12,8 +12,10 @@ import combosRoutes from "./routes/combosRoutes.js";
 import menuRoutes from "./routes/menuRoutes.js";
 import pedidoRoutes from "./routes/pedidoRoutes.js";
 import webhookRoutes from "./routes/webhookRoutes.js";
+import restaurantsPublic from "./routes/public.restaurants.js";
 import authRoutes from "./routes/authRoutes.js";
 import mesaRoutes from "./routes/mesaRoutes.js";
+import adminCombosCover from "./routes/admin.combos.cover.js";
 import menuImageRoutes from "./routes/menuImageRoutes.js";
 import payRoutes from "./routes/payRoutes.js";
 import menuItemRoutes from "./routes/menuItemRoutes.js";
@@ -72,7 +74,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 });
 app.use("/api/", apiLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/webhooks", webhookLimiter);
-
+app.use(restaurantsPublic);
 // Compresión y body size limits
 app.use(compression());
 
@@ -100,6 +102,7 @@ app.use("/api/inventario", inventarioRoutes);
 app.use("/api/pay", payRoutes);
 app.use("/api/categorias", categoriaRoutes);
 app.use("/api/reportes", reportesRoutes);
+app.use(adminCombosCover);
 // Estáticos
 app.use(express.static(path.join(__dirname, "public")));
 

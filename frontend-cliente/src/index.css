@@ -1,16 +1,23 @@
 @import "tailwindcss";
 
-/* Opcional: tipografía y suavizados */
-:root {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* 🔹 Define fuentes como tokens de Tailwind v4 */
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
+  --font-serif: "Playfair Display", Georgia, ui-serif, serif;
+  /* 👇 esto crea la utilidad `font-montserrat` */
+  --font-montserrat: "Montserrat", var(--font-sans);
 }
 
-html, body, #root {
-  height: 100%;
+@layer base {
+  html, body, #root { @apply min-h-screen; }
+  body { @apply bg-white text-rose-50 font-sans antialiased; }
+  /* ahora sí existe `font-montserrat` */
+  h1,h2,h3,.heading { @apply font-montserrat font-extrabold uppercase tracking-wide; }
 }
 
-body {
-  margin: 0;
-  background: #fafafa;
+@layer components {
+  .card-light { @apply bg-white text-neutral-900; }
+  .card-light-muted { @apply text-neutral-600; }
+  .badge-on-img { @apply absolute bottom-0 inset-x-0 bg-white/85 text-neutral-900 px-3 py-2 font-medium; }
+  .badge-on-img-dark { @apply absolute bottom-0 inset-x-0 bg-black/60 text-white px-3 py-2 font-medium; }
 }

@@ -1,13 +1,37 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>MikhunApp — Pedidos por QR, pago online y comanda automática</title>
+    <meta
+      name="description"
+      content="Digitaliza tu restaurante: pedidos por QR, pago online y comanda automática. Multi-tenant, panel admin y panel de cocina en tiempo real."
+    />
+
+    <!-- Favicon (rompe caché con ?v=5) -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <meta name="theme-color" content="#10B981" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="MikhunApp — Pedidos por QR" />
+    <meta
+      property="og:description"
+      content="Pago online y comanda automática para restaurantes."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mikhunapp.vercel.app/" />
+    <meta
+      property="og:image"
+      content="https://mikhunapp.vercel.app/services/01-dashboard.png"
+    />
+    <link rel="canonical" href="https://mikhunapp.vercel.app/" />
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script src="https://js.culqi.com/checkout-js"></script>
   </body>
 </html>

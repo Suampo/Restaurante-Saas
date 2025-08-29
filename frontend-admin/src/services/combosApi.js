@@ -29,3 +29,4 @@ export const uploadComboCover = (id, file) => {
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
 };
+

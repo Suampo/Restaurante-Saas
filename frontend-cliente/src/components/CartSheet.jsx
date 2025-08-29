@@ -20,9 +20,9 @@ export default function CartSheet({
       <div className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl">
         <div className="mx-auto max-w-6xl">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold">🛒 Tu carrito</h3>
+            <h3 className="text-base font-semibold text-neutral-900">🛒 Tu carrito</h3>
             <button
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-neutral-100"
+              className="rounded-lg border px-3 py-1.5 text-sm text-neutral-900"
               onClick={onClose}
             >
               Cerrar
@@ -44,7 +44,7 @@ export default function CartSheet({
                   return (
                     <div
                       key={`cart-${idx}-${item.isCombo ? "combo" : "item"}`}
-                      className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5"
+                      className="flex items-center gap-3 rounded-xl text-neutral-900 p-3 shadow-sm ring-1 ring-black/5"
                     >
                       <img
                         src={imgSrc}
@@ -74,14 +74,14 @@ export default function CartSheet({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => onRemove(idx)}
-                          className="h-9 w-9 rounded-lg border border-neutral-300 text-lg leading-none hover:bg-neutral-100"
+                          className="h-9 w-9 rounded-lg border text-neutral-900 hover:bg-neutral-100"
                           aria-label="Quitar uno"
                         >
                           −
                         </button>
                         <button
                           onClick={() => onAdd(idx)}
-                          className="h-9 w-9 rounded-lg border border-neutral-300 text-lg leading-none hover:bg-neutral-100"
+                          className="h-9 w-9 rounded-lg border text-neutral-900 hover:bg-neutral-100"
                           aria-label="Agregar uno"
                         >
                           +

@@ -1,31 +1,53 @@
 // src/pages/auth/RegisterRestaurant.jsx
 import { useState } from "react";
-// 👇 corrige el import: este archivo está en src/pages/auth y el modal en src/pages/legal
+import { useNavigate } from "react-router-dom";
 import ConsentModal from "../legal/ConsentModal.jsx";
 
 export default function RegisterRestaurant() {
+  const nav = useNavigate();
+
   const [form, setForm] = useState({ nombre: "", email: "", contacto: "", telefono: "" });
+  const [errors, setErrors] = useState({});
   const [consent, setConsent] = useState({ required: false, marketing: false });
   const [openConsent, setOpenConsent] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const setField = (key, value) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!form.nombre.trim()) e.nombre = "Ingresa el nombre del restaurante.";
+    if (!form.contacto.trim()) e.contacto = "Ingresa el nombre del contacto.";
+    const phone = (form.telefono || "").replace(/\D/g, "");
+    if (!phone) e.telefono = "Ingresa un teléfono.";
+    else if (phone.length < 9) e.telefono = "Teléfono inválido (mín. 9 dígitos).";
+    if (!form.email.trim()) e.email = "Ingresa un correo electrónico.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(form.email)) e.email = "Correo no válido.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
   const submitToApi = async () => {
     setLoading(true);
     try {
-      const payload = { ...form, consent_required: consent.required, consent_marketing: consent.marketing };
-      console.log("submit", payload);
-      alert("Registro enviado ✨");
-    } catch (e) {
-      console.error(e);
-      alert("No se pudo registrar");
+      // guardamos para rehidratar en el paso de planes
+      sessionStorage.setItem("registro_restaurante", JSON.stringify({ ...form, consent }));
+      nav("/registro/planes", { state: { form } });
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo registrar.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSubmit = (e) => {
-    e?.preventDefault?.();
+    e.preventDefault();
+    if (!validate()) return;
     if (!consent.required) {
       setOpenConsent(true);
       setPendingSubmit(true);
@@ -43,62 +65,93 @@ export default function RegisterRestaurant() {
     }
   };
 
-  return (
-    <main className="relative overflow-hidden">
-      {/* blobs verdes */}
-      <div className="pointer-events-none absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full bg-emerald-400/12 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-48 -right-48 h-[460px] w-[460px] rounded-full bg-emerald-400/10 blur-3xl" />
+  const inputClass = (err) =>
+    `mt-1 w-full rounded-xl border bg-white px-3 py-2 outline-none transition
+     ${err ? "border-red-400 focus:border-red-500" : "border-neutral-300 focus:border-emerald-500"}`;
 
-      <section className="mx-auto max-w-3xl px-4 py-12">
+  return (
+    // Tono verde de fondo + ocupa el alto de la ventana sin generar desbordes
+    <main className="relative min-h-dvh bg-gradient-to-b from-emerald-50 via-white to-emerald-50/40">
+      {/* Fondo decorativo controlado (no genera scroll) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full bg-emerald-400/15 blur-3xl" />
+        <div className="absolute -bottom-48 -right-48 h-[460px] w-[460px] rounded-full bg-teal-300/10 blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.12]"
+          style={{
+            backgroundImage:
+              "radial-gradient(#d1fae5 1px, transparent 1px), radial-gradient(#d1fae5 1px, transparent 1px)",
+            backgroundPosition: "0 0, 8px 8px",
+            backgroundSize: "16px 16px",
+            maskImage: "linear-gradient(180deg, transparent, black 10%, black 90%, transparent)",
+          }}
+        />
+      </div>
+
+      {/* Contenido */}
+      <section className="mx-auto max-w-3xl px-4 py-10 md:py-12">
         <h1 className="text-3xl font-bold tracking-tight">Registra tu restaurante</h1>
-        <p className="mt-2 text-neutral-600">
+        <p className="mt-2 text-neutral-700">
           Te tomará menos de 2 minutos. Luego eliges tu plan y pasas al pago.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 grid gap-5">
+        <form onSubmit={handleSubmit} className="mt-8 grid gap-5" noValidate>
           <div>
-            <label className="text-sm font-medium">Nombre del restaurante</label>
+            <label htmlFor="nombre" className="text-sm font-medium">Nombre del restaurante</label>
             <input
-              className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+              id="nombre"
+              required
               placeholder="Ej: La Esquina de Juan"
+              className={inputClass(!!errors.nombre)}
               value={form.nombre}
-              onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+              onChange={(e) => setField("nombre", e.target.value)}
             />
+            {errors.nombre && <p className="mt-1 text-xs text-red-600">{errors.nombre}</p>}
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <label className="text-sm font-medium">Contacto</label>
+              <label htmlFor="contacto" className="text-sm font-medium">Contacto</label>
               <input
-                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+                id="contacto"
+                required
                 placeholder="Nombre y apellido"
+                className={inputClass(!!errors.contacto)}
                 value={form.contacto}
-                onChange={(e) => setForm((f) => ({ ...f, contacto: e.target.value }))}
+                onChange={(e) => setField("contacto", e.target.value)}
               />
+              {errors.contacto && <p className="mt-1 text-xs text-red-600">{errors.contacto}</p>}
             </div>
             <div>
-              <label className="text-sm font-medium">Teléfono</label>
+              <label htmlFor="telefono" className="text-sm font-medium">Teléfono</label>
               <input
-                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
+                id="telefono"
+                required
+                inputMode="tel"
                 placeholder="+51 9xx xxx xxx"
+                className={inputClass(!!errors.telefono)}
                 value={form.telefono}
-                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                onChange={(e) => setField("telefono", e.target.value)}
               />
+              {errors.telefono && <p className="mt-1 text-xs text-red-600">{errors.telefono}</p>}
             </div>
           </div>
 
           <div>
-            <label className="text-sm font-medium">Email</label>
+            <label htmlFor="email" className="text-sm font-medium">Email</label>
             <input
+              id="email"
+              required
               type="email"
-              className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-emerald-500"
               placeholder="tucorreo@restaurante.com"
+              className={inputClass(!!errors.email)}
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) => setField("email", e.target.value)}
             />
+            {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
           </div>
 
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-neutral-700">
             Al registrarte aceptas el tratamiento necesario de datos.{" "}
             <button
               type="button"

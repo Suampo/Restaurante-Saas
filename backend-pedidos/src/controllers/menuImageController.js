@@ -28,6 +28,7 @@ export const uploadMenuImage = async (req, res) => {
       .upload(path, req.file.buffer, {
         contentType: req.file.mimetype,
         upsert: true,
+        cacheControl: "31536000",
       });
 
     if (upErr) {
