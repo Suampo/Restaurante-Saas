@@ -8,7 +8,7 @@
     "worker": "node src/workers/outboxWorker.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.54.0",
+    "@supabase/supabase-js": "^2.56.0",
     "axios": "^1.6.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",

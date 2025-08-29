@@ -200,15 +200,13 @@ export async function getPublicConfig(req, res) {
 export async function preparePublicOrder(req, res) {
   try {
     const { restaurantId } = req.params;
-    const { amount, email, description, paymentMethods } = req.body || {};
+    let { amount, email, description, paymentMethods } = req.body || {};
     if (!amount || amount <= 0) return res.status(400).json({ error: "Monto inválido" });
-    if (!email) return res.status(400).json({ error: "Falta email" });
+    if (!email) email = `guest+${Date.now()}@${process.env.PUBLIC_EMAIL_DOMAIN || "noemail.local"}`;
 
     const r  = await getRestaurantKeysById(restaurantId);
     const md = await buildPublicMetadata(req);
-    if (!md.table_code) {
-      return res.status(400).json({ error: "Falta metadata.table_code", detail: "Envía table_code o mesaId/order_id" });
-    }
+    if (!md.table_code) md.table_code = process.env.PUBLIC_DEFAULT_TABLE_CODE || "ONLINE";
 
     const order = await createCulqiOrder({
       amount,
@@ -231,7 +229,8 @@ export async function preparePublicOrder(req, res) {
 export async function chargePublicToken(req, res) {
   try {
     const { restaurantId } = req.params;
-    const { amount, email, tokenId, description } = req.body || {};
+    let { amount, email, tokenId, description } = req.body || {};
+    if (!email) email = `guest+${Date.now()}@${process.env.PUBLIC_EMAIL_DOMAIN || "noemail.local"}`;
     if (!amount || amount <= 0 || !tokenId) return res.status(400).json({ error: "Faltan parámetros" });
 
     const r  = await getRestaurantKeysById(restaurantId);
