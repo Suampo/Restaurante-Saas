@@ -20,4 +20,70 @@
   .card-light-muted { @apply text-neutral-600; }
   .badge-on-img { @apply absolute bottom-0 inset-x-0 bg-white/85 text-neutral-900 px-3 py-2 font-medium; }
   .badge-on-img-dark { @apply absolute bottom-0 inset-x-0 bg-black/60 text-white px-3 py-2 font-medium; }
+
+  /* 🔹 Tarjeta con hover animado */
+  .tile-hover {
+    @apply transform transition-all duration-300 hover:scale-[1.03] hover:shadow-lg;
+  }
+
+  /* 🔹 Botón de flecha con hover */
+  .arrow-btn {
+    @apply rounded-full bg-white shadow-lg ring-1 ring-black/5 p-2 
+           hover:scale-110 hover:shadow-xl transition-all duration-200 ease-out;
+  }
+
+  /* 🔹 Gradientes laterales para carrusel */
+  .carousel-gradient-left {
+    @apply pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent;
+  }
+  .carousel-gradient-right {
+    @apply pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent;
+  }
 }
+
+/* 🔹 Ocultar scrollbars */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* 🔹 Animaciones */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeInUp { animation: fadeInUp 0.6s ease-out forwards; }
+
+@keyframes fadeInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-fadeInLeft { animation: fadeInLeft 0.6s ease-out forwards; }
+
+* { -webkit-tap-highlight-color: transparent; }
+
+/* 🔹 Scroll snap horizontal */
+.scroll-snap-x { scroll-snap-type: x mandatory; }
+.scroll-snap-x > * { scroll-snap-align: start; }
+
+/* 🔹 Ocultar scrollbar horizontal en carruseles */
+.hide-x-scrollbar { scrollbar-width: none; }
+.hide-x-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ===== Fix móvil para MP Bricks ===== */
+.mp-card-wrap {
+  width: 100%;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+@media (min-width: 380px) { .mp-card-wrap { max-width: 420px; } }
+/* Asegura que el contenedor interno del Brick no desborde */
+.mp-card-wrap > div { width: 100% !important; max-width: 100% !important; }
+
+/* Evita “rebote” del scroll dentro del modal en iOS/Android */
+.fixed.inset-0 { overscroll-behavior: contain; }

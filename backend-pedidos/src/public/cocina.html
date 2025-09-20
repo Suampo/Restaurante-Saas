@@ -62,81 +62,19 @@
     <div id="pedidos"></div>
 
     <script>
-      const backendURL = "http://localhost:4000";
-      const restaurantId = "1"; // Por ahora trabajamos con restaurantId 1
+      (async function () {
+        const backendURL = "http://localhost:4000";
+        const restaurantId = "1";
 
-      // ⚡ Token de servicio de cocina para restaurantId 1
-      const token =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyZXN0YXVyYW50SWQiOjEsInJvbCI6ImtpdGNoZW4iLCJpYXQiOjE3NTUyODI5MTgsImV4cCI6MTc4NjgxODkxOH0.0ZMZBKuHJRXkloSlSqvMsG9Fkkk4wnDyjRpUImDf9sQ";
-
-      // Conexión a Socket.IO usando token
-      const socket = io(backendURL, {
-        query: { restaurantId },
-        auth: { token },
-      });
-
-      const estado = document.getElementById("estado");
-      const pedidosContainer = document.getElementById("pedidos");
-
-      socket.on("connect", () => {
-        estado.textContent = "🟢 Conectado a Socket.IO";
-        estado.className = "conectado";
-      });
-      socket.on("disconnect", () => {
-        estado.textContent = "🔴 Desconectado de Socket.IO";
-        estado.className = "desconectado";
-      });
-
-      const renderPedido = (pedido) => {
-        if (
-          String(pedido.restaurant_id || pedido.restaurantId) !== restaurantId
-        )
-          return;
-
-        const div = document.createElement("div");
-        div.className = "pedido";
-
-        const productosHTML = (pedido.items || [])
-          .map(
-            (item) =>
-              `<li>${item.cantidad}x ${item.nombre || item.producto} - S/ ${
-                item.precio_unitario
-              }</li>`
-          )
-          .join("");
-
-        div.innerHTML = `
-          <div class="mesa">Mesa: ${pedido.mesa || "N/A"}</div>
-          <div>Pedido #${pedido.id} - Estado: ${pedido.estado}</div>
-          <ul>${productosHTML}</ul>
-          <strong>Total: S/ ${pedido.monto}</strong>
-        `;
-
-        pedidosContainer.appendChild(div);
-        pedidosContainer.scrollTop = pedidosContainer.scrollHeight;
-
-        socket.emit("kitchen.ack", {
-          orderId: pedido.id,
-          restaurantId,
-          type: "received",
+        const r = await fetch("/api/auth/generar-token-servicio", {
+          credentials: "include",
         });
-      };
-
-      socket.on("nuevo_pedido", renderPedido);
-      socket.on("pedido_pagado", renderPedido);
-
-      // Cargar pedidos pagados desde API usando token
-      fetch(`${backendURL}/api/pedidos/cocina?estado=pagado`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) data.forEach((p) => renderPedido(p));
-          else console.warn("La respuesta de pedidos no es un array:", data);
-        })
-        .catch((err) =>
-          console.error("Error cargando pedidos existentes:", err)
-        );
+        const { token } = await r.json();
+        const socket = io(backendURL, {
+          query: { restaurantId },
+          auth: { token },
+        });
+      })();
     </script>
   </body>
 </html>

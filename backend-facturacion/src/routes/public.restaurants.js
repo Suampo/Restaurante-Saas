@@ -4,7 +4,7 @@ const router = express.Router();
 const { getEmisorByRestaurant } = require('../services/facturador');
 
 /**
- * Devuelve settings públicos que tu front necesita para renderizar el checkout.
+ * EXISTENTE
  * GET /public/restaurants/:id/settings
  */
 router.get('/public/restaurants/:id/settings', async (req, res) => {
@@ -12,12 +12,11 @@ router.get('/public/restaurants/:id/settings', async (req, res) => {
     const restaurantId = Number(req.params.id);
     if (!restaurantId) throw new Error('restaurantId inválido');
 
-    const emisor = await getEmisorByRestaurant(restaurantId); // ya lo tienes en tu proyecto
+    const emisor = await getEmisorByRestaurant(restaurantId);
 
-    // Ajusta/añade lo que realmente uses en el front
     const settings = {
       culqiPublicKey: process.env.CULQI_PUBLIC_KEY || emisor.culqi_public_key || '',
-      defaultComprobante: '03', // por defecto Boleta
+      defaultComprobante: '03',
       series: {
         '01': emisor.factura_serie || 'F001',
         '03': emisor.boleta_serie || 'B001',
@@ -40,6 +39,38 @@ router.get('/public/restaurants/:id/settings', async (req, res) => {
     res.json({ ok: true, settings });
   } catch (e) {
     res.status(404).json({ ok: false, error: e.message });
+  }
+});
+
+/**
+ * NUEVO (lo que espera el frontend)
+ * GET /api/pay/public/:id/config  -> { culqiPublicKey, name }
+ */
+router.get('/api/pay/public/:id/config', async (req, res) => {
+  try {
+    const restaurantId = Number(req.params.id);
+    if (!restaurantId) throw new Error('restaurantId inválido');
+
+    const emisor = await getEmisorByRestaurant(restaurantId).catch(() => null);
+
+    const culqiPublicKey =
+      process.env.CULQI_PUBLIC_KEY ||
+      process.env.VITE_CULQI_PUBLIC_KEY ||
+      (emisor && emisor.culqi_public_key) ||
+      '';
+
+    if (!culqiPublicKey) {
+      return res.status(404).json({ message: 'Culqi public key no configurada' });
+    }
+
+    const name =
+      (emisor && (emisor.nombre_comercial || emisor.razon_social)) ||
+      process.env.RESTAURANT_NAME ||
+      'Restaurante';
+
+    res.json({ culqiPublicKey, name });
+  } catch (e) {
+    res.status(404).json({ message: e.message });
   }
 });
 

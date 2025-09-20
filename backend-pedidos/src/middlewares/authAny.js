@@ -19,7 +19,7 @@ export const authAny = (req, res, next) => {
 
   // Acepta tokens de ADMIN o CLIENTE
   const p =
-    tryVerify(token, process.env.JWT_SECRET) ||
+    tryVerify(token, process.env.SUPABASE_JWT_SECRET) ||
     tryVerify(token, process.env.JWT_CLIENT_SECRET);
 
   if (!p) return res.status(401).json({ error: "Token inválido" });

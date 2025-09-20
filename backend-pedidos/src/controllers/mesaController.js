@@ -28,26 +28,29 @@ export const listarMesas = async (req, res) => {
 
 export const crearMesa = async (req, res) => {
   try {
-    const restaurantId = req.user.restaurantId; // del token
-    const { codigo, descripcion } = req.body || {};
-    if (!codigo || !String(codigo).trim()) {
-      return res.status(400).json({ error: "Falta código" });
+    const restaurantId = req.user.restaurantId;
+    let { codigo, descripcion } = req.body || {};
+
+    codigo = String(codigo ?? '').trim();
+    if (!codigo) return res.status(400).json({ error: 'Falta código' });
+
+    const q = `
+      insert into public.mesas (restaurant_id, codigo, descripcion)
+      values ($1, $2, $3)
+      on conflict (restaurant_id, codigo) do nothing
+      returning id, codigo, descripcion
+    `;
+    const { rows } = await pool.query(q, [restaurantId, codigo, descripcion || null]);
+
+    if (!rows.length) {
+      // cayó en el UNIQUE compuesto => ya existe esa mesa en ESTE restaurante
+      return res.status(409).json({ error: 'Ya existe una mesa con ese código' });
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO mesas (restaurant_id, codigo, descripcion)
-       VALUES ($1, $2, $3)
-       RETURNING id, codigo, descripcion`,
-      [restaurantId, String(codigo).trim(), descripcion || null]
-    );
-
-    res.status(201).json(rows[0]);
+    return res.status(201).json(rows[0]);
   } catch (err) {
-    if (err?.code === "23505") {
-      return res.status(409).json({ error: "Ya existe una mesa con ese código" });
-    }
-    console.error("❌ crearMesa:", err.stack || err.message, err?.detail || "");
-    res.status(500).json({ error: "Error creando mesa" });
+    console.error('❌ crearMesa:', err.stack || err.message);
+    return res.status(500).json({ error: 'Error creando mesa' });
   }
 };
 

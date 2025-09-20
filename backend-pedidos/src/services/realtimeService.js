@@ -32,7 +32,7 @@ export const initSocket = async (server) => {
 
     const secrets = [
       process.env.JWT_SERVICE_SECRET,   // tokens de servicio (KDS/Raspberry)
-      process.env.JWT_SECRET,           // tokens de login (admin/operador)
+      process.env.SUPABASE_JWT_SECRET,           // tokens de login (admin/operador)
       "dev_service_secret",             // fallback dev
     ].filter(Boolean);
 

@@ -9,7 +9,7 @@ export function openCulqiCheckout({ amount, email, orderId, onToken, onOrder }) 
   const settings = { title: "Mikhunapp", currency: "PEN", amount, order: orderId || undefined };
   const client = { email };
   const paymentMethods = { tarjeta: true, yape: !!orderId }; // Yape solo con Orders
-  const options = { lang: "es", installments: true, modal: true, paymentMethods };
+  const options = { lang: "es", installments: false, modal: true, paymentMethods };
 
   const instance = new window.CulqiCheckout(publicKey, { settings, client, options });
 

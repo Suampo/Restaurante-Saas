@@ -22,10 +22,30 @@ router.get("/admin/stats/sales-by-day", authTenant, ventasPorDia);
 // ========================
 // Listado de pedidos para cocina
 // ========================
-router.get("/cocina", authKitchen, obtenerPedidos); // <- Usar el controller directamente
+router.get("/cocina", authKitchen, obtenerPedidos);
 
 // ========================
-// Actualización de estado de pago (PATCH)
+// ABANDONAR (anular) pedido pendiente de pago
+//  - DEBE ir ANTES que PATCH "/:id"
+//  - Lo dejamos con authAny para que el cliente pueda anular su pedido abierto
+//    cuando regresa del flujo de pago y cambia el carrito.
+// ========================
+router.patch("/:id/abandonar", authAny, async (req, res) => {
+  try {
+    req.body = {
+      ...(req.body || {}),
+      estado: "anulado",
+      motivo: "abandonado_por_cliente", // opcional
+    };
+    await actualizarPedidoEstado(req, res);
+  } catch (e) {
+    console.error("[pedidos/:id/abandonar]", e);
+    res.status(500).json({ error: "No se pudo abandonar el pedido" });
+  }
+});
+
+// ========================
+// Actualización de estado (genérica)
 // ========================
 router.patch("/:id", authTenant, actualizarPedidoEstado);
 

@@ -13,6 +13,19 @@ function moneyPartsFromUnitPrice(priceWithIgv, qty) {
   return { pBase, base, igv, price, priceTotal };
 }
 
+// ====== MAPEO DE UNIDADES A SUNAT (Catálogo 03) ======
+const SUNAT_UNIT = {
+  NIU: 'NIU', UND: 'NIU', UNIDAD: 'NIU', U: 'NIU', UNI: 'NIU',
+  KG: 'KGM', KGM: 'KGM', KILOGRAMO: 'KGM',
+  L: 'LTR', LT: 'LTR', LTR: 'LTR', LITRO: 'LTR',
+  M: 'MTR', MTR: 'MTR',
+  M2: 'MTK', MTK: 'MTK',
+};
+function mapUnit(u) {
+  const k = String(u || 'NIU').toUpperCase().trim();
+  return SUNAT_UNIT[k] || 'NIU';
+}
+
 async function getPedidoCompleto(pedidoId) {
   const { data: pedido, error: e1 } = await supabase
     .from('pedidos').select('*').eq('id', pedidoId).maybeSingle();
@@ -44,16 +57,16 @@ function buildDetailsFromDB(detalles) {
     const desc = d?.menu_items?.nombre || d?.combos?.nombre || 'Item';
     const parts = moneyPartsFromUnitPrice(unit, qty);
     lines.push({
-      unidad: 'UNI',
+      unidad: mapUnit('NIU'),          // <- SIEMPRE NIU para platos
       descripcion: desc,
       cantidad: qty,
-      mtoValorUnitario: parts.pBase,
-      mtoValorVenta: parts.base,
+      mtoValorUnitario: parts.pBase,   // valor unitario SIN IGV
+      mtoValorVenta: parts.base,       // base imponible (línea)
       mtoBaseIgv: parts.base,
       porcentajeIgv: 18,
       igv: parts.igv,
       tipAfeIgv: 10,
-      mtoPrecioUnitario: unit,
+      mtoPrecioUnitario: unit,         // precio unitario CON IGV
       totalImpuestos: parts.igv
     });
   }
@@ -81,9 +94,7 @@ function legendEnLetras(total) {
 
 function normalizeClient(billing) {
   const c = { ...billing };
-  // Factura (RUC) exige razón social
   if (c.tipoDoc === '6' && !c.rznSocial) c.rznSocial = 'Cliente RUC';
-  // Boleta: si no hay rznSocial, usar nombres+apellidos o "Cliente"
   if (c.tipoDoc !== '6' && !c.rznSocial) {
     const full = [c.nombres, c.apellidos].filter(Boolean).join(' ').trim();
     c.rznSocial = full || 'Cliente';
@@ -98,7 +109,7 @@ function companyFromEmisor(emisor) {
     razonSocial: emisor.razon_social,
     nombreComercial: emisor.nombre_comercial || emisor.razon_social,
     address: {
-      ubigeo: emisor.ubigeo || '',     // ¡ojo: "ubigeo"
+      ubigeo: emisor.ubigeo || '',
       departamento: emisor.departamento || '',
       provincia: emisor.provincia || '',
       distrito: emisor.distrito || '',
@@ -109,7 +120,6 @@ function companyFromEmisor(emisor) {
 }
 
 function nowLimaISO() {
-  // ISO con zona -05:00
   const z = new Date();
   const tz = -5;
   const y = z.getUTCFullYear();
@@ -121,21 +131,18 @@ function nowLimaISO() {
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}-05:00`;
 }
 
-/**
- * Construye el CPE para APIsPERU.
- * Si no hay detalles en DB, crea UNA línea fallback con el total del pedido.
- */
+/** Construye el CPE para APIsPERU. */
 function buildCPE({ tipoDoc, serie, correlativo, fechaEmisionISO, emisor, billing, detalles, pedido }) {
   let details = buildDetailsFromDB(detalles);
 
-  // Fallback: si no hay líneas o el total de líneas es 0 → una línea por el total del pedido
+  // Fallback: si no hay líneas o suma 0 → una sola línea por el total del pedido
   const sumLines = details.reduce((s, l) => s + Number(l.mtoPrecioUnitario || 0) * Number(l.cantidad || 1), 0);
   const totalPedido = Number(pedido?.total || 0);
   if (!details.length || round2(sumLines) === 0) {
     const unit = round2(totalPedido);
     const parts = moneyPartsFromUnitPrice(unit, 1);
     details = [{
-      unidad: 'UNI',
+      unidad: mapUnit('NIU'),
       descripcion: 'Consumo restaurante',
       cantidad: 1,
       mtoValorUnitario: parts.pBase,
