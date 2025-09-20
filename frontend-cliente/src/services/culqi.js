@@ -1,93 +1,106 @@
 // src/services/culqi.js
 import {
   apiGetPublicConfig,
-  apiPreparePublicOrder,   // debe enviar body con { amount, currency, email, description, paymentMethods?, metadata }
-  apiChargePublicToken,    // debe enviar body con { amount, currency, email, tokenId, description, metadata }
-  apiCreatePedido,         // << añadiremos esto en src/services/api.js (abajo)
-} from "./api";
+  apiPreparePublicOrder,   // POST :5000/psp/culqi/orders  -> { id, ... } (puede fallar si no estás habilitado)
+  apiChargePublicToken,    // POST :5000/psp/culqi/charges
+  apiCreatePedido,         // POST :5000/api/pedidos
+} from "./api.js";
 
-/** Carga diferida de Culqi (una sola vez) */
-let culqiLoading = null;
-export function ensureCulqi() {
+/* =========================
+   LOADERS
+   ========================= */
+
+// 1) Culqi Custom (https://js.culqi.com/checkout-js)
+let customLoading = null;
+function ensureCulqiCustom () {
   if (window.CulqiCheckout) return Promise.resolve();
-  if (culqiLoading) return culqiLoading;
-  culqiLoading = new Promise((resolve, reject) => {
+  if (customLoading) return customLoading;
+  customLoading = new Promise((resolve, reject) => {
     const s = document.createElement("script");
     s.src = "https://js.culqi.com/checkout-js";
     s.async = true;
-    s.onload = () =>
-      window.CulqiCheckout
-        ? resolve()
-        : reject(new Error("Culqi loaded but CulqiCheckout not found"));
-    s.onerror = () => reject(new Error("No se pudo cargar Culqi"));
+    s.onload = () => window.CulqiCheckout ? resolve() : reject(new Error("Culqi Custom no disponible"));
+    s.onerror = () => reject(new Error("No se pudo cargar Culqi Custom"));
     document.head.appendChild(s);
   });
-  return culqiLoading;
+  return customLoading;
 }
 
-/** Construye la instancia del checkout (requiere Culqi cargado) */
-function buildCulqiInstance(publicKey, {
-  title,
-  currency,
-  amount,
-  order,   // opcional
-  email,   // opcional (prefill)
-}) {
-  if (!window.CulqiCheckout) {
-    throw new Error("CulqiCheckout no está disponible.");
-  }
-  const settings = { title, currency, amount, ...(order ? { order } : {}) };
-  const client   = email ? { email } : {};
-  const options  = {
-    lang: "es",
-    installments: true,
-    modal: true,
-    paymentMethods: order
-      ? { tarjeta: true, yape: true, bancaMovil: true }
-      : { tarjeta: true },
-  };
-  return new window.CulqiCheckout(publicKey, { settings, client, options });
+// 2) Culqi 3DS (https://3ds.culqi.com) → define window.Culqi3DS
+let threeDSLoading = null;
+function ensureCulqi3DS (publicKey) {
+  if (window.Culqi3DS && window.Culqi3DS.publicKey) return Promise.resolve();
+  if (threeDSLoading) return threeDSLoading;
+  threeDSLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://3ds.culqi.com";
+    s.defer = true;
+    s.async = true;
+    s.onload = () => {
+      try {
+        window.Culqi3DS = window.Culqi3DS || {};
+        window.Culqi3DS.publicKey = publicKey;
+        resolve();
+      } catch (e) {
+        reject(new Error("Culqi3DS cargó pero no expuso la API"));
+      }
+    };
+    s.onerror = () => reject(new Error("No se pudo cargar Culqi3DS"));
+    document.head.appendChild(s);
+  });
+  return threeDSLoading;
 }
 
-/**
- * Flujo recomendado: crea el pedido (guarda billing_client) y luego abre Culqi.
- * - payloadPedido: { restaurantId, items?, total?, comprobanteTipo, billingClient, billingEmail }
- * - Si no mandas "total", tu backend puede calcularlo desde "items".
- */
-export async function startPublicCheckoutCulqi({ payloadPedido, description = "Pedido" }) {
+/* =========================
+   HELPER: abrir Custom
+   ========================= */
+async function openCustom ({ publicKey, settings, client, options }) {
+  await ensureCulqiCustom();
+  await ensureCulqi3DS(publicKey); // <- evita “Culqi3DS is not defined”
+
+  const inst = new window.CulqiCheckout(publicKey, { settings, client, options });
+
+  return new Promise((resolve, reject) => {
+    inst.culqi = function () {
+      try {
+        if (inst.token)  return resolve({ mode: "token",  token: inst.token });
+        if (inst.order)  return resolve({ mode: "order",  order: inst.order });
+        if (inst.error)  return reject(inst.error);
+        return reject(new Error("Checkout cerrado sin token ni order"));
+      } catch (e) { reject(e); }
+    };
+    inst.open();
+  });
+}
+
+/* =========================
+   FLUJOS ALTO NIVEL
+   ========================= */
+export async function startPublicCheckoutCulqi ({ payloadPedido, description = "Pedido" }) {
   const { restaurantId, billingEmail } = payloadPedido || {};
   if (!restaurantId) throw new Error("payloadPedido.restaurantId requerido");
 
-  // 1) Crear pedido en backend (guarda billing_client en pedidos.billing_client)
-  const { pedidoId, amount, currency } = await apiCreatePedido(payloadPedido); // amount en céntimos
-
-  // 2) Abrir Culqi con metadata completa (orderId, restaurantId, comprobanteTipo)
+  const { pedidoId, amount, currency } = await apiCreatePedido(payloadPedido); // céntimos
   const customer = { email: billingEmail || payloadPedido?.billingClient?.email };
+
   return openPublicCheckoutCulqi({
     restaurantId,
     pedidoId,
     amount,
     currency,
     customer,
-    metadataExtra: {},                  // por si quieres agregar mesaId, etc.
     comprobanteTipo: payloadPedido.comprobanteTipo, // "01" | "03"
-    description
+    description,
   });
 }
 
-/**
- * Abre Culqi:
- * - Primero intenta ORDER (Yape/billeteras).
- * - Si falla, cae a token+charge clásico.
- * Requiere "pedidoId" para armar metadata correcta.
- */
-export async function openPublicCheckoutCulqi({
+export async function openPublicCheckoutCulqi ({
   restaurantId,
   pedidoId,
-  amount,                 // céntimos (integer)
-  customer,               // { email, fullName?, phone? }
+  amount,                 // céntimos
+  customer,               // { email }
   comprobanteTipo,        // "01" | "03"
-  metadataExtra = {},     // cualquier metadato adicional (mesaId, etc.)
+  metadataExtra = {},
   currency = "PEN",
   description = "Pedido",
 }) {
@@ -95,117 +108,73 @@ export async function openPublicCheckoutCulqi({
   if (!pedidoId) throw new Error("Falta pedidoId");
   if (!amount || !customer?.email) throw new Error("Faltan monto/email");
 
-  // 1) Obtener publicKey del restaurante
-  const cfg = await apiGetPublicConfig(restaurantId); // { culqiPublicKey, name }
+  // 1) Config pública
+  const cfg = await apiGetPublicConfig(restaurantId); // { culqiPublicKey, name? }
   const publicKey = cfg.culqiPublicKey;
+  const title = cfg?.name || "Pago";
 
-  // Metadata obligatoria para el webhook
+  // 2) Metadata para el webhook
   const metadata = {
     orderId: String(pedidoId),
     restaurantId: String(restaurantId),
-    comprobanteTipo: String(comprobanteTipo || "03"), // default Boleta
+    comprobanteTipo: String(comprobanteTipo || "03"),
     ...metadataExtra,
   };
 
-  // 2) Intentar ORDER (activa Yape/billeteras)
+  // 3) Intentar ORDER (Yape/billeteras). Si tu comercio no está habilitado, este POST devolverá 400 y seguiremos con tarjeta.
+  let orderId = null;
   try {
-    const data = await apiPreparePublicOrder(restaurantId, {
+    const ord = await apiPreparePublicOrder(restaurantId, {
       amount,
       currency,
       email: customer.email,
       description,
-      paymentMethods: { tarjeta: true, yape: true, bancaMovil: true },
-      metadata, // <<<<<<<<<<<<<<<<<<<<<< AQUI VA
+      metadata,
     });
+    orderId = ord?.id || ord?.culqi?.id || ord?.orderId || null;
+  } catch { /* comercio no habilitado para orders → continuamos sin order */ }
 
-    if (data?.culqi?.orderId) {
-      await ensureCulqi();
-      const inst = buildCulqiInstance(publicKey, {
-        title: cfg.name || "Pago",
-        currency,
-        amount,
-        order: data.culqi.orderId,
-        email: customer.email,
-      });
+  // 4) Configurar Custom:
+  const settings = {
+    title,
+    currency,
+    amount: Number(amount) || 0,           // entero en céntimos
+    ...(orderId ? { order: String(orderId) } : {}), // solo si existe
+    // NO pongas xculqirsaid / rsapublickey si no tienes RSA habilitado oficialmente
+  };
 
-      return new Promise((resolve, reject) => {
-        inst.culqi = function () {
-          if (inst.order) {
-            resolve({ mode: "order", order: inst.order });
-            alert("Procesando pago… gracias por tu pedido.");
-          } else if (inst.error) {
-            reject(inst.error);
-            alert(inst.error?.user_message || "Error en el pago");
-          }
-        };
-        inst.open();
-      });
-    }
+  const options = orderId ? {
+    lang: "es",
+    modal: true,
+    installments: false, // evita llamadas a validate-iins (cuotas)
+    paymentMethods: { tarjeta: true, yape: true, billetera: true, bancaMovil: true, agente: true, cuotealo: false },
+    paymentMethodsSort: ["tarjeta","yape","billetera","bancaMovil","agente"],
+  } : {
+    lang: "es",
+    modal: true,
+    installments: false, // solo tarjeta
+    paymentMethods: { tarjeta: true, yape: false, billetera: false, bancaMovil: false, agente: false, cuotealo: false },
+  };
 
-    if (data?.paymentUrl) {
-      location.href = data.paymentUrl;
-      return;
-    }
+  const client = { email: customer.email };
 
-    // Fallback a token
-    return tokenFallback({
-      publicKey, restaurantId, pedidoId, amount, currency, customer, metadata, description,
-    });
-  } catch (err) {
-    console.warn("[Orders] no disponible → token+charge:", err?.message || err);
-    return tokenFallback({
-      publicKey, restaurantId, pedidoId, amount, currency, customer, metadata, description,
-    });
+  // 5) Abrir checkout
+  const result = await openCustom({ publicKey, settings, client, options });
+
+  // 6) Si eligió ORDER, el webhook te avisará cuando quede pagado
+  if (result.mode === "order") {
+    return { ok: true, mode: "order", order: result.order };
   }
+
+  // 7) Si eligió tarjeta (token) → crear cargo en tu backend público
+  const out = await apiChargePublicToken(restaurantId, {
+    amount, currency, email: customer.email,
+    tokenId: result.token.id,
+    description,
+    metadata: { ...metadata, flow: "custom:token+charge" },
+  });
+  return { ok: true, mode: "token+charge", charge: out };
 }
 
-function tokenFallback({
-  publicKey,
-  restaurantId,
-  pedidoId,
-  amount,
-  currency,
-  customer,
-  metadata,
-  description,
-}) {
-  return (async () => {
-    await ensureCulqi();
-    const inst = buildCulqiInstance(publicKey, {
-      title: "Pago",
-      currency,
-      amount,
-      email: customer.email,
-    });
-
-    return new Promise((resolve, reject) => {
-      inst.culqi = async function () {
-        try {
-          if (inst.token) {
-            const tokenId = inst.token.id;
-            const out = await apiChargePublicToken(restaurantId, {
-              amount,
-              currency,
-              email: customer.email,
-              tokenId,
-              description,
-              metadata: { ...metadata, flow: "token+charge" } // <<<< también pasa metadata aquí
-            });
-            resolve({ mode: "token+charge", result: out });
-            alert("Pago en proceso. ¡Gracias!");
-          } else if (inst.error) {
-            reject(inst.error);
-            alert(inst.error?.user_message || "No se pudo procesar el pago");
-          }
-        } catch (e) {
-          reject(e);
-          alert("No se pudo completar el pago.");
-        }
-      };
-      inst.open();
-    });
-  })();
-}
-
-// Alias opcional
+// Alias
 export { openPublicCheckoutCulqi as openCulqiCheckout };

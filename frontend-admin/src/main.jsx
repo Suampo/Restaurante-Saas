@@ -1,10 +1,18 @@
+// src/main.jsx
+import { AuthProvider } from './context/AuthProvider.jsx';
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
-import "./index.css"; // <- SOLO este
+import "./index.css";
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
+const app = (
+  <AuthProvider>
     <App />
-  </React.StrictMode>
+  </AuthProvider>
 );
+
+const element = import.meta.env.PROD
+  ? <React.StrictMode>{app}</React.StrictMode>
+  : app;
+
+ReactDOM.createRoot(document.getElementById("root")).render(element);

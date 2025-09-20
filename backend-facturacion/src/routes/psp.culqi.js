@@ -6,7 +6,7 @@ const CULQI_API = 'https://api.culqi.com/v2';
 const SECRET = process.env.CULQI_SECRET;
 
 if (!global.fetch) {
-  // si usas Node < 18, instala node-fetch y descomenta:
+  // Si usas Node < 18, instala node-fetch e impórtalo aquí.
   // global.fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 }
 
@@ -18,22 +18,34 @@ function authHeaders() {
   };
 }
 
+router.use(express.json({ type: '*/*' }));
+
 /**
  * POST /psp/culqi/orders
- * body: { amount, currency, customer_email?, metadata }
+ * body: { amount, currency?, email?, customer_email?, description?, paymentMethods?, metadata? }
  */
-router.post('/psp/culqi/orders', express.json({ type: '*/*' }), async (req, res) => {
+router.post('/psp/culqi/orders', async (req, res) => {
   try {
-    const { amount, currency = 'PEN', customer_email = '', metadata = {} } = req.body;
+    const {
+      amount,
+      currency = 'PEN',
+      email,
+      customer_email,
+      description = 'Pedido restaurante',
+      paymentMethods, // no lo necesita Culqi aquí; lo dejamos por compatibilidad
+      metadata = {}
+    } = req.body;
+
     if (!amount) throw new Error('amount requerido');
+    const clientEmail = customer_email || email || '';
 
     const payload = {
       amount,                         // céntimos
       currency_code: currency,        // "PEN"
-      description: 'Pedido restaurante',
+      description,
       order_number: String(metadata.orderId || Date.now()),
-      client_details: { email: customer_email },
-      metadata                         // <<<<<< AQUI VA TU METADATA
+      client_details: { email: clientEmail },
+      metadata                        // << pasa TODO tu metadata
     };
 
     const r = await fetch(`${CULQI_API}/orders`, {
@@ -42,8 +54,13 @@ router.post('/psp/culqi/orders', express.json({ type: '*/*' }), async (req, res)
       body: JSON.stringify(payload)
     });
     const json = await r.json();
-    if (!r.ok) throw new Error(json?.user_message || json?.merchant_message || 'Error creando Order');
-    res.json(json);
+    if (!r.ok) {
+      // Este es el mensaje que te estaba saliendo:
+      // "El comercio tiene problemas de integración..."
+      throw new Error(json?.user_message || json?.merchant_message || 'Error creando Order');
+    }
+    // Devuelvo un envoltorio amigable para el front
+    res.json({ culqi: { orderId: json?.id || null }, raw: json });
   } catch (e) {
     console.error('culqi/orders error:', e.message);
     res.status(400).json({ error: e.message });
@@ -52,19 +69,30 @@ router.post('/psp/culqi/orders', express.json({ type: '*/*' }), async (req, res)
 
 /**
  * POST /psp/culqi/charges
- * body: { amount, currency, email, token_id, metadata }
+ * body: { amount, currency?, email, tokenId?, token_id?, description?, metadata? }
  */
-router.post('/psp/culqi/charges', express.json({ type: '*/*' }), async (req, res) => {
+router.post('/psp/culqi/charges', async (req, res) => {
   try {
-    const { amount, currency = 'PEN', email, token_id, metadata = {} } = req.body;
-    if (!amount || !token_id || !email) throw new Error('amount, token_id y email requeridos');
+    const {
+      amount,
+      currency = 'PEN',
+      email,
+      tokenId,
+      token_id,
+      description = 'Pedido restaurante',
+      metadata = {}
+    } = req.body;
+
+    const source = token_id || tokenId;
+    if (!amount || !source || !email) throw new Error('amount, tokenId y email requeridos');
 
     const payload = {
       amount,                         // céntimos
       currency_code: currency,        // "PEN"
       email,
-      source_id: token_id,            // token del Checkout
-      metadata                        // <<<<<< AQUI TAMBIEN
+      source_id: source,              // token del Checkout
+      description,
+      metadata                        // << pasa TODO tu metadata
     };
 
     const r = await fetch(`${CULQI_API}/charges`, {
@@ -73,8 +101,10 @@ router.post('/psp/culqi/charges', express.json({ type: '*/*' }), async (req, res
       body: JSON.stringify(payload)
     });
     const json = await r.json();
-    if (!r.ok) throw new Error(json?.user_message || json?.merchant_message || 'Error creando Charge');
-    res.json(json);
+    if (!r.ok) {
+      throw new Error(json?.user_message || json?.merchant_message || 'Error creando Charge');
+    }
+    res.json({ culqi: { id: json?.id || null }, raw: json });
   } catch (e) {
     console.error('culqi/charges error:', e.message);
     res.status(400).json({ error: e.message });

@@ -2,7 +2,7 @@
 import { pool } from "../config/db.js";
 import jwt from "jsonwebtoken";
 
-const ADMIN_SECRET  = process.env.JWT_SECRET || "dev_admin_secret";
+const ADMIN_SECRET  = process.env.SUPABASE_JWT_SECRET || "dev_admin_secret";
 const CLIENT_SECRET = process.env.JWT_CLIENT_SECRET || ADMIN_SECRET;
 
 // --- Login ADMIN (email + password) ---
@@ -57,10 +57,16 @@ export const loginCliente = (req, res) => {
   if (!restaurantId) return res.status(400).json({ error: "Falta restaurantId" });
 
   const token = jwt.sign(
-    { userId: null, restaurantId, rol: "client" },
+    {
+      type: "client",           // ⬅️ clave para diferenciar en la cookie
+      rol: "client",
+      restaurantId,
+      // email opcional; si no lo pones, igual funciona
+    },
     CLIENT_SECRET,
     { expiresIn: "7d" }
   );
+
   res.json({ token });
 };
 

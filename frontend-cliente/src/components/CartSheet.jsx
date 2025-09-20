@@ -10,7 +10,7 @@ export default function CartSheet({
   onAdd,      // índice
   onRemove,   // índice
   onSend,
-  onPay       // NUEVO: para pagar con Culqi
+  onPay       
 }) {
   if (!open) return null;
 
@@ -93,11 +93,11 @@ export default function CartSheet({
               </div>
 
               <div className="mt-4 flex items-center justify-between">
-                <div className="text-lg font-semibold">Total: {formatPEN(total)}</div>
+                <div className="text-black font-semibold">Total: {formatPEN(total)}</div>
                 <div className="flex gap-2">
                   <button
                     onClick={onPay}
-                    className="h-11 rounded-xl bg-emerald-600 px-5 text-white transition hover:bg-emerald-500"
+                    className="h-11 rounded-xl bg-emerald-600 px-5 text-b transition hover:bg-emerald-500"
                   >
                     Pagar Pedido
                   </button>

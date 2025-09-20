@@ -4,13 +4,8 @@ const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { emitirInvoice, getEmisorByRestaurant } = require('../services/facturador');
 
-// Base de APIsPeru para PDF
 const APISPERU_BASE = process.env.APISPERU_BASE || 'https://facturacion.apisperu.com/api/v1';
 
-/**
- * GET /debug/cpe/by-pedido/:pedidoId
- * Devuelve el último CPE asociado a un pedido.
- */
 router.get('/cpe/by-pedido/:pedidoId', async (req, res) => {
   try {
     const pedidoId = Number(req.params.pedidoId);
@@ -32,12 +27,6 @@ router.get('/cpe/by-pedido/:pedidoId', async (req, res) => {
   }
 });
 
-/**
- * POST /debug/cpe/retry
- * Reintenta enviar a SUNAT el CPE ya guardado (raw_request) y
- * actualiza cpe_documents y el pedido (solo cpe_id + sunat_estado).
- * body: { cpeId }
- */
 router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -51,18 +40,21 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
     if (error) throw error;
     if (!cpe) throw new Error('CPE no encontrado');
 
-    // Re-emitir
     const resp = await emitirInvoice({
       restaurantId: cpe.restaurant_id,
       cpeBody: cpe.raw_request,
     });
 
-    // Estado basado en la respuesta
-    const estado =
-      (resp?.sunatResponse?.success || resp?.cdrZip) ? 'ACEPTADO' :
-      (resp?.sunatResponse?.error) ? 'RECHAZADO' : 'ENVIADO';
+    const success =
+      resp?.accepted ||
+      resp?.sunat_response?.success ||
+      resp?.sunatResponse?.success;
 
-    // Actualizar cpe_documents
+    const hasError =
+      !!(resp?.error || resp?.sunat_response?.error || resp?.sunatResponse?.error);
+
+    const estado = success ? 'ACEPTADO' : (hasError ? 'RECHAZADO' : 'ENVIADO');
+
     const update = {
       estado,
       xml_url: resp?.links?.xml || null,
@@ -71,11 +63,14 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
       hash: resp?.hash || null,
       digest: resp?.digestValue || null,
       sunat_ticket: resp?.ticket || null,
+      sunat_notas:
+        (resp?.sunatResponse?.error?.message) ||
+        (resp?.sunat_response?.error?.message) ||
+        (resp?.error?.message) || null,
       raw_response: resp,
     };
     await supabase.from('cpe_documents').update(update).eq('id', cpeId);
 
-    // 🔧 Sincroniza el pedido (solo cpe_id + sunat_estado; NO tocamos 'estado')
     await supabase.from('pedidos').update({
       cpe_id: cpeId,
       sunat_estado: estado,
@@ -87,11 +82,6 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
   }
 });
 
-/**
- * POST /debug/cpe/pdf-stream
- * Body: { cpeId }
- * Genera el PDF en APIsPeru y lo devuelve en la respuesta (application/pdf).
- */
 router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -120,7 +110,6 @@ router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) =
 
     const buf = Buffer.from(await r.arrayBuffer());
     if (!r.ok) {
-      // Si viene error en JSON, intenta parsearlo
       let err;
       try { err = JSON.parse(buf.toString('utf8')); } catch { err = { message: 'No se pudo generar PDF' }; }
       return res.status(400).json({ ok: false, status: r.status, error: err });
@@ -135,12 +124,6 @@ router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) =
   }
 });
 
-/**
- * POST /debug/cpe/pdf-save
- * Body: { cpeId }
- * Genera el PDF en APIsPeru, lo sube a Supabase Storage (bucket 'cpe') y guarda el URL en cpe_documents.pdf_url
- * Requisitos: tener bucket 'cpe' creado (público o usa signed URLs).
- */
 router.post('/cpe/pdf-save', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -177,7 +160,6 @@ router.post('/cpe/pdf-save', express.json({ type: '*/*' }), async (req, res) => 
     const filename = `${cpe.serie}-${cpe.correlativo}.pdf`;
     const path = `${emisor.ruc}/${filename}`;
 
-    // Subir a Storage (bucket 'cpe')
     const { error: eUp } = await supabase
       .storage
       .from('cpe')
