@@ -117,7 +117,7 @@ export default function Home() {
                     subtitle={co?.descripcion || "Elige 1 entrada + 1 fondo"}
                     image={co.cover_url}
                     fallback={FALLBACK}
-                    onClick={() => nav(`/combo${location.search}`)}
+                    onClick={() => nav(`/combo?comboId=${co.id}${location.search.replace(/^\?/, '&')}`)}
                   />
                 </div>
               ))}
@@ -141,7 +141,7 @@ export default function Home() {
                 subtitle={co?.descripcion || "Elige 1 entrada + 1 fondo"}
                 image={co.cover_url}
                 fallback={FALLBACK}
-                onClick={() => nav(`/combo${location.search}`)}
+               onClick={() => nav(`/combo?comboId=${co.id}${location.search.replace(/^\?/, '&')}`)}
                 className="tile-hover"
               />
             ))}

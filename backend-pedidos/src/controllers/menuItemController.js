@@ -24,7 +24,9 @@ export const getMenuItems = async (req, res) => {
     const restaurantId = req.user.restaurantId;
     const categoriaId = req.query.categoriaId ? Number(req.query.categoriaId) : null;
     const q = (req.query.q || "").toString().trim().toLowerCase();
-    const activos = req.query.activos; // "true" | "false" | undefined
+
+    let activos = req.query.activos; // "true" | "false" | "all" | undefined
+    if (!activos) activos = "true";  // por defecto: solo activos
 
     const where = ["mi.restaurant_id = $1"];
     const params = [restaurantId];
@@ -40,8 +42,11 @@ export const getMenuItems = async (req, res) => {
       params.push(`%${q}%`);
       idx++;
     }
+
+    // filtro por estado
     if (activos === "true")  where.push("mi.activo = TRUE");
     if (activos === "false") where.push("mi.activo = FALSE");
+    // si activos === "all", no añadimos nada -> lista todo
 
     const sql = `
       SELECT mi.id, mi.nombre, mi.descripcion, mi.precio, mi.imagen_url, mi.activo,
@@ -51,8 +56,10 @@ export const getMenuItems = async (req, res) => {
        WHERE ${where.join(" AND ")}
        ORDER BY mi.id DESC
     `;
+
     const { rows } = await pool.query(sql, params);
     res.json(rows);
+
   } catch (err) {
     console.error("❌ getMenuItems:", err.stack || err.message);
     res.status(500).json({ error: "Error obteniendo items" });

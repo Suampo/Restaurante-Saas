@@ -1,8 +1,8 @@
+// src/hooks/MenuProvider.jsx
 import React, { createContext, useEffect, useMemo, useState } from "react";
-import axios from "axios";
-import { apiGetPublicConfig } from "../services/api.js";
+import { fetchRestaurant } from "../services/restaurantApi.js"; // <- añade esta import
 
-// Config base API
+// Si tienes helpers en /lib/ui, puedes usarlos; aquí sólo resolvemos API_BASE.
 const API_BASE =
   import.meta.env.VITE_API_PEDIDOS ||
   import.meta.env.VITE_API_URL ||
@@ -10,116 +10,153 @@ const API_BASE =
 
 export const MenuPublicCtx = createContext(null);
 
-// Agrupa items planos por categoria_id
-function groupItemsByCategory(items = [], cats = []) {
-  const byId = new Map(Array.isArray(cats) ? cats.map(c => [c.id, { ...c, items: [] }]) : []);
-  items.forEach(it => {
-    const catId = it.categoria_id ?? -1;
-    if (!byId.has(catId)) byId.set(catId, { id: catId, nombre: "Otros", cover_url: null, items: [] });
-    byId.get(catId).items.push(it);
-  });
-  return Array.from(byId.values()).filter(c => c.items.length > 0);
+function readUrlParams() {
+  const p = new URLSearchParams(location.search);
+  return {
+    restaurantId: Number(p.get("restaurantId") || 1),
+    mesaId: p.get("mesaId") ? Number(p.get("mesaId")) : null,
+    mesaCode: p.get("mesaCode") || null,
+  };
+}
+
+/**
+ * Carga el menú público. Si en tu proyecto ya tienes funciones en
+ * `services/restaurantApi`, puedes sustituir el fetch por esas funciones.
+ */
+async function fetchMenuPublic(restaurantId) {
+  // Endpoint genérico: ajústalo si tu backend expone rutas diferentes.
+  const url = `${API_BASE}/api/public/menu?restaurantId=${restaurantId}`;
+  const r = await fetch(url, { credentials: "include" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
 }
 
 export default function MenuProvider({ children }) {
-  const [loading, setLoading] = useState(true);
-  const [categories, setCategories] = useState([]);
-  const [combos, setCombos] = useState([]);
-  const [error, setError] = useState("");
-  const [restaurantName, setRestaurantName] = useState("");
-  const [billingMode, setBillingMode] = useState("none");
+  const { restaurantId, mesaId, mesaCode } = readUrlParams();
 
-  const params = new URLSearchParams(location.search);
-  const restaurantId = Number(params.get("restaurantId") || 1);
-  const mesaId = Number(params.get("mesaId") || 0);
-  const mesaCode = params.get("mesaCode") || null;
-
-  // Rehidrata cache para pintar instantáneo
-  useEffect(() => {
-    const key = `menu_public_${restaurantId}`;
-    const cached = sessionStorage.getItem(key);
-    if (cached) {
-      try {
-        const j = JSON.parse(cached);
-        if (j?.categories) setCategories(j.categories);
-        if (j?.combos) setCombos(j.combos);
-        if (j?.restaurantName) setRestaurantName(j.restaurantName);
-        setLoading(false);
-      } catch {}
-    }
-  }, [restaurantId]);
+  const [state, setState] = useState({
+    loading: true,
+    error: "",
+    restaurantName: "",
+    billingMode: "none", // 'sunat' | 'simple' | 'none'
+    categories: [],
+    combos: [],
+  });
 
   useEffect(() => {
-    const ctrl = new AbortController();
+    let alive = true;
+
     (async () => {
       try {
-        setError("");
+        setState((s) => ({ ...s, loading: true, error: "" }));
 
-        const menuPromise = axios.get(`${API_BASE}/api/public/menu`, {
-          params: { restaurantId },
-          signal: ctrl.signal,
-          headers: { Accept: "application/json" },
+        // Dispara ambas peticiones en paralelo:
+        // - Menú público
+        // - Info del restaurante (incluye billing_mode)
+        const [data, restInfo] = await Promise.all([
+          fetchMenuPublic(restaurantId).catch(() => null),
+          fetchRestaurant(restaurantId, { credentials: "include" }).catch(() => null),
+        ]);
+
+        // Normalizamos respuesta del menú
+        const categories =
+          data?.categories ||
+          data?.categorias ||
+          [];
+
+        const combos = data?.combos || [];
+
+        // Nombre de restaurante: prioriza lo que venga, con fallbacks
+        const restaurantName =
+          data?.restaurantName ||
+          data?.restaurant?.nombre ||
+          data?.restaurante?.nombre ||
+          restInfo?.nombre ||
+          "Restaurante";
+
+        // billingMode desde el menú o, si no viene, desde /public/restaurants/:id
+        const billingMode = String(
+          data?.billingMode ||
+          data?.restaurante?.billing_mode ||
+          restInfo?.billing_mode ||
+          "none"
+        ).toLowerCase();
+
+        if (!alive) return;
+
+        setState({
+          loading: false,
+          error: "",
+          categories,
+          combos,
+          restaurantName,
+          billingMode,
         });
-        const cfgPromise = apiGetPublicConfig(restaurantId).catch(() => null);
-
-        // MENÚ primero
-        const menuRes = await menuPromise;
-        const raw = menuRes.data;
-
-        let nextCategories = [];
-        let nextCombos = [];
-
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          nextCategories = Array.isArray(raw.categories) ? raw.categories : [];
-          nextCombos = Array.isArray(raw.combos) ? raw.combos : [];
-        } else if (Array.isArray(raw)) {
-          nextCategories = groupItemsByCategory(raw);
-          nextCombos = [];
-        }
-
-        setCategories(nextCategories);
-        setCombos(nextCombos);
-        setLoading(false);
-
-        sessionStorage.setItem(
-          `menu_public_${restaurantId}`,
-          JSON.stringify({ categories: nextCategories, combos: nextCombos, restaurantName })
-        );
-
-        // CONFIG después
-        const cfg = await cfgPromise;
-        if (cfg) {
-          setRestaurantName(cfg?.name || cfg?.nombre || "");
-          setBillingMode(cfg?.billingMode || "none");
-          try {
-            const k = `menu_public_${restaurantId}`;
-            const prev = JSON.parse(sessionStorage.getItem(k) || "{}");
-            sessionStorage.setItem(k, JSON.stringify({ ...prev, restaurantName: cfg?.name || cfg?.nombre || "" }));
-          } catch {}
-        }
       } catch (e) {
-        if (e?.name === "AbortError" || e?.name === "CanceledError") return;
-        const msg =
-          e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          e?.message ||
-          "No se pudo cargar el menú";
-        setError(msg);
-        setCategories([]); setCombos([]);
-        setRestaurantName(""); setBillingMode("none");
-        setLoading(false);
+        if (!alive) return;
+        setState((s) => ({
+          ...s,
+          loading: false,
+          error: "No se pudo cargar el menú.",
+        }));
       }
     })();
-    return () => ctrl.abort();
+
+    return () => {
+      alive = false;
+    };
   }, [restaurantId]);
+
+  // ====== Lista aplanada (menuAll) + alias de compatibilidad ======
+  const menuAll = useMemo(() => {
+    const out = [];
+    for (const c of state.categories || []) {
+      const arr = Array.isArray(c?.items) ? c.items : [];
+      for (const m of arr) {
+        out.push({ ...m, categoria_id: m?.categoria_id ?? c?.id ?? null });
+      }
+    }
+    return out;
+  }, [state.categories]);
 
   const value = useMemo(
     () => ({
-      loading, error, categories, combos,
-      restaurantId, mesaId, mesaCode,
-      restaurantName, billingMode,
+      // meta
+      apiBase: API_BASE,
+      restaurantId,
+      mesaId,
+      mesaCode,
+      restaurantName: state.restaurantName,
+      billingMode: state.billingMode,
+
+      // datos
+      categories: state.categories,
+      combos: state.combos,
+
+      // aplanado y alias (para compatibilidad con componentes existentes)
+      menuAll,           // recomendado usar este
+      menu: menuAll,
+      items: menuAll,
+      fullMenu: menuAll,
+      allMenu: menuAll,
+      menuItems: menuAll,
+
+      // ui state
+      loading: state.loading,
+      error: state.error,
     }),
-    [loading, error, categories, combos, restaurantId, mesaId, mesaCode, restaurantName, billingMode]
+    [
+      restaurantId,
+      mesaId,
+      mesaCode,
+      state.restaurantName,
+      state.billingMode,
+      state.categories,
+      state.combos,
+      state.loading,
+      state.error,
+      menuAll,
+    ]
   );
 
   return <MenuPublicCtx.Provider value={value}>{children}</MenuPublicCtx.Provider>;

@@ -1,7 +1,11 @@
 // src/components/MenuCard.jsx
+import React from 'react';
+import { Eye, EyeOff, Pencil, Trash2, Tag } from 'lucide-react'; // <-- Íconos de Lucide
+
 const FALLBACK = "/no-image.png";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
 
+// Helper para asegurar que la URL de la imagen sea absoluta
 const toAbs = (u) => (u?.startsWith("http") ? u : u ? `${API_BASE}${u}` : "");
 
 export default function MenuCard({
@@ -9,75 +13,81 @@ export default function MenuCard({
   onEdit,
   onDelete,
   onToggleActive,
-  categoryName, // 👈 NUEVO
+  categoryName,
 }) {
   const src = toAbs(item.imagen_url) || FALLBACK;
-  const inactive = item.activo === false;
+  const isInactive = item.activo === false;
 
   return (
-    <div
-      className={[
-        "group h-full flex flex-col overflow-hidden rounded-2xl bg-white/90 shadow-sm ring-1 ring-black/5 transition hover:shadow-md",
-        inactive ? "opacity-60 grayscale" : "",
-      ].join(" ")}
-    >
-      <div className="relative aspect-[16/10] w-full overflow-hidden">
+    <div className="group flex h-full flex-col overflow-hidden rounded-2xl bg-white/70 shadow-lg shadow-zinc-200/50 backdrop-blur-lg ring-1 ring-black/5 transition-shadow duration-300 hover:shadow-xl">
+      
+      {/* --- Contenedor de Imagen --- */}
+      <div className="relative aspect-[4/3] w-full overflow-hidden">
         <img
           src={src}
-          onError={(e) => {
-            e.currentTarget.src = FALLBACK;
-          }}
+          onError={(e) => { e.currentTarget.src = FALLBACK; }}
           alt={item.nombre}
-          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+          className={`h-full w-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-105 ${isInactive ? 'grayscale' : ''}`}
           loading="lazy"
         />
-
-        {/* Chip de categoría (izquierda) */}
-        {categoryName && (
-          <span className="absolute left-2 top-2 max-w-[70%] truncate rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur sm:text-xs">
-            {categoryName}
-          </span>
+        {isInactive && (
+            <>
+                <div className="absolute inset-0 bg-white/60" />
+                <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 rounded-full bg-zinc-800 px-2 py-1 text-xs font-semibold text-white">
+                    <EyeOff size={14} /> Oculto
+                </div>
+            </>
         )}
-
-        {/* Chip de precio (derecha) */}
-        <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur sm:text-xs">
-          S/ {Number(item.precio || 0).toFixed(2)}
-        </span>
       </div>
 
-      <div className="flex-1 min-w-0 p-4 flex flex-col">
-        <h3 className="line-clamp-1 font-semibold">
-          {item.nombre || "Sin nombre"}
-        </h3>
-        <p className="mt-1 line-clamp-2 text-sm text-gray-600">
-          {item.descripcion || "Sin descripción"}
-        </p>
-
-        <div className="mt-auto pt-4 flex items-center gap-2">
-          {onToggleActive && (
+      {/* --- Contenedor de Texto --- */}
+      <div className="flex min-w-0 flex-1 flex-col p-4">
+        <div className="flex-grow">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-base font-bold text-zinc-800">
+              {item.nombre || "Sin nombre"}
+            </h3>
+            {categoryName && (
+              <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200">
+                <Tag size={12} /> {categoryName}
+              </span>
+            )}
+          </div>
+          
+          <p className="mt-2 line-clamp-2 text-sm text-zinc-600">
+            {item.descripcion || ""}
+          </p>
+        </div>
+        
+        {/* --- Precio y Acciones --- */}
+        <div className="mt-4 flex items-end justify-between">
+          <p className="text-xl font-bold text-green-700">
+            S/ {Number(item.precio || 0).toFixed(2)}
+          </p>
+          
+          <div className="flex items-center space-x-1">
             <button
-              className={`rounded-lg border px-3 py-1.5 text-sm ${
-                inactive
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                  : "border-amber-300 bg-amber-50 text-amber-800"
-              }`}
               onClick={() => onToggleActive(item)}
+              title={isInactive ? "Mostrar en menú" : "Ocultar del menú"}
+              className={`p-2 rounded-full transition-colors ${isInactive ? 'text-zinc-500 hover:bg-zinc-200' : 'text-green-600 hover:bg-green-100' }`}
             >
-              {inactive ? "Mostrar" : "Ocultar"}
+              {isInactive ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
-          )}
-          <button
-            className="rounded-lg border border-yellow-300 bg-yellow-50 px-3 py-1.5 text-sm text-yellow-800"
-            onClick={() => onEdit(item)}
-          >
-            Editar
-          </button>
-          <button
-            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
-            onClick={() => onDelete(item.id)}
-          >
-            Eliminar
-          </button>
+            <button
+              onClick={() => onEdit(item)}
+              title="Editar plato"
+              className="p-2 rounded-full text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-800"
+            >
+              <Pencil className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => onDelete(item.id)}
+              title="Eliminar plato"
+              className="p-2 rounded-full text-zinc-500 transition-colors hover:bg-rose-100 hover:text-rose-600"
+            >
+              <Trash2 className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

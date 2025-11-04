@@ -1,4 +1,4 @@
-// controllers/pedidoController.js
+// src/controllers/pedidoController.js
 import { pool } from "../config/db.js";
 import { emitPedidoPagadoCompleto } from "../services/realtimeService.js";
 
@@ -61,7 +61,7 @@ export const obtenerPedidos = async (req, res) => {
         p.estado,
         p.total AS monto,
         p.created_at,
-        p.note AS note, -- 👈 devolvemos la nota
+        p.note AS note,
         COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
         COALESCE(
           (SELECT jsonb_agg(i.item) FROM items i WHERE i.pedido_id = p.id),
@@ -94,12 +94,12 @@ export const crearPedido = async (req, res) => {
     const items          = Array.isArray(req.body?.items) ? req.body.items : [];
     const idempotencyKey = String(req.body?.idempotencyKey || "");
 
-    // Campos de facturación (opcionales si el flujo cae aquí)
+    // Facturación opcional
     const comprobanteTipo = req.body?.comprobanteTipo || null; // "01" | "03" | null
     const billingClient   = req.body?.billingClient ?? null;   // json
     const billingEmail    = (req.body?.billingEmail || "").trim() || null;
 
-    // NUEVO: nota para cocina
+    // Nota para cocina (opcional)
     const note = typeof req.body?.note === "string"
       ? req.body.note.trim().slice(0, 300)
       : null;
@@ -112,14 +112,30 @@ export const crearPedido = async (req, res) => {
 
     // 1) Mesa válida
     const mesaQ = await client.query(
-      `SELECT id FROM mesas WHERE id=$1 AND restaurant_id=$2 FOR SHARE`,
+      `SELECT id, UPPER(codigo) AS codigo
+         FROM public.mesas
+        WHERE id=$1 AND restaurant_id=$2
+        FOR SHARE`,
       [mesaId, restaurantId]
     );
     if (!mesaQ.rows.length) throw new Error("Mesa no válida");
 
-    // 2) Inserta pedido idempotente (con facturación y note)
+    // 1.1) SOLO si NO es LLEVAR: anula otros pedidos pendientes de esta mesa
+    const esLlevar = (mesaQ.rows[0].codigo || "") === "LLEVAR";
+    if (!esLlevar) {
+      await client.query(
+        `UPDATE public.pedidos p
+            SET estado = 'anulado', updated_at = NOW()
+          WHERE p.restaurant_id = $1
+            AND p.mesa_id = $2
+            AND p.estado = 'pendiente_pago'`,
+        [restaurantId, mesaId]
+      );
+    }
+
+    // 2) Inserta pedido idempotente (con facturación y nota)
     const ped = await client.query(
-      `INSERT INTO pedidos (
+      `INSERT INTO public.pedidos (
          restaurant_id, mesa_id, total, estado, created_at, idempotency_key,
          comprobante_tipo, billing_client, billing_email, note
        )
@@ -133,24 +149,25 @@ export const crearPedido = async (req, res) => {
 
     // 3) Si ya hay detalle (reintento idempotente)
     const detCount = await client.query(
-      `SELECT COUNT(*)::int AS c FROM pedido_detalle WHERE pedido_id = $1`,
+      `SELECT COUNT(*)::int AS c FROM public.pedido_detalle WHERE pedido_id = $1`,
       [pedidoId]
     );
     if (detCount.rows[0].c > 0) {
       const totalQ = await client.query(
         `SELECT COALESCE(SUM(cantidad * precio_unitario),0) AS total
-           FROM pedido_detalle WHERE pedido_id = $1`,
+           FROM public.pedido_detalle
+          WHERE pedido_id = $1`,
         [pedidoId]
       );
       const totalExistente = Number(totalQ.rows[0].total || 0);
 
       await client.query(
-        `UPDATE pedidos
+        `UPDATE public.pedidos
             SET total=$1,
                 comprobante_tipo = COALESCE(comprobante_tipo, $2),
                 billing_client   = COALESCE(billing_client,   $3),
                 billing_email    = COALESCE(billing_email,    $4),
-                note             = COALESCE(note, $6), -- 👈 guarda nota si no estaba
+                note             = COALESCE(note, $6),
                 updated_at=NOW()
           WHERE id=$5`,
         [totalExistente, comprobanteTipo, billingClient, billingEmail, pedidoId, note]
@@ -166,7 +183,7 @@ export const crearPedido = async (req, res) => {
       });
     }
 
-    // 4) Inserta detalle
+    // 4) Inserta detalle (combos / items)
     let total = 0;
     for (const it of items) {
       const cantidad   = Math.max(1, Number(it.cantidad || it.qty || 1));
@@ -175,24 +192,80 @@ export const crearPedido = async (req, res) => {
 
       if (comboId) {
         const comboQ = await client.query(
-          `SELECT precio FROM combos WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
+          `SELECT precio FROM public.combos WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
           [comboId, restaurantId]
         );
         if (!comboQ.rows.length) throw new Error("Combo no válido");
         const precioUnit = Number(comboQ.rows[0].precio || 0);
         total += precioUnit * cantidad;
 
-        await client.query(
-          `INSERT INTO pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
-           VALUES ($1, NULL, $2, $3, $4)`,
+        const detIns = await client.query(
+          `INSERT INTO public.pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
+           VALUES ($1, NULL, $2, $3, $4)
+           RETURNING id`,
           [pedidoId, comboId, cantidad, precioUnit]
         );
+        const pedidoDetalleId = detIns.rows[0].id;
+
+        const gruposSel = Array.isArray(it.grupos) ? it.grupos : [];
+        if (gruposSel.length) {
+          for (const g of gruposSel) {
+            const gid = Number(g.grupoId || g.id || 0);
+            const itemsSel = Array.isArray(g.items) ? g.items : [];
+            for (const chosen of itemsSel) {
+              const mid = Number(chosen.id || chosen.menu_item_id || 0);
+              if (!mid || !gid) continue;
+              const tipoV2 = `g${gid}`;
+              await client.query(
+                `INSERT INTO public.pedido_detalle_combo_items
+                   (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
+                 VALUES ($1, $2, $3, $4)`,
+                [pedidoDetalleId, mid, gid, tipoV2]
+              );
+            }
+          }
+        } else {
+          const entradaId = Number(it.entradaId || it.entrada?.id || 0);
+          const platoId   = Number(it.platoId   || it.plato?.id   || 0);
+
+          if (entradaId) {
+            const qg = await client.query(
+              `SELECT id FROM public.combo_grupos WHERE combo_id=$1 AND nombre_grupo='Entrada' LIMIT 1`,
+              [comboId]
+            );
+            const gid = qg.rows[0]?.id || null;
+            if (gid) {
+              await client.query(
+                `INSERT INTO public.pedido_detalle_combo_items
+                   (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
+                 VALUES ($1, $2, $3, 'entrada')`,
+                [pedidoDetalleId, entradaId, gid]
+              );
+            }
+          }
+
+          if (platoId) {
+            const qg = await client.query(
+              `SELECT id FROM public.combo_grupos WHERE combo_id=$1 AND nombre_grupo='Plato' LIMIT 1`,
+              [comboId]
+            );
+            const gid = qg.rows[0]?.id || null;
+            if (gid) {
+              await client.query(
+                `INSERT INTO public.pedido_detalle_combo_items
+                   (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
+                 VALUES ($1, $2, $3, 'plato')`,
+                [pedidoDetalleId, platoId, gid]
+              );
+            }
+          }
+        }
         continue;
       }
 
       if (menuItemId) {
         const pr = await client.query(
-          `SELECT precio FROM menu_items WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
+          `SELECT precio FROM public.menu_items WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
           [menuItemId, restaurantId]
         );
         if (!pr.rows.length) throw new Error("Item no válido");
@@ -201,7 +274,7 @@ export const crearPedido = async (req, res) => {
         total += precioUnit * cantidad;
 
         await client.query(
-          `INSERT INTO pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
+          `INSERT INTO public.pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
            VALUES ($1, $2, NULL, $3, $4)`,
           [pedidoId, menuItemId, cantidad, precioUnit]
         );
@@ -211,14 +284,14 @@ export const crearPedido = async (req, res) => {
       throw new Error("Item inválido");
     }
 
-    // 5) Actualiza total y asegura billing + note
+    // 5) Actualiza total + billing + nota
     await client.query(
-      `UPDATE pedidos
+      `UPDATE public.pedidos
           SET total=$1,
               comprobante_tipo = COALESCE(comprobante_tipo, $2),
               billing_client   = COALESCE(billing_client,   $3),
               billing_email    = COALESCE(billing_email,    $4),
-              note             = COALESCE(note, $6), -- 👈 asegura nota
+              note             = COALESCE(note, $6),
               updated_at=NOW()
         WHERE id=$5`,
       [total, comprobanteTipo, billingClient, billingEmail, pedidoId, note]
@@ -238,9 +311,9 @@ export const crearPedido = async (req, res) => {
     if (error?.code === "23505") {
       if (error?.constraint === "uniq_open_order_per_table") {
         const q = await pool.query(
-          `SELECT id FROM pedidos
-           WHERE restaurant_id=$1 AND mesa_id=$2 AND estado='pendiente_pago'
-           ORDER BY created_at DESC LIMIT 1`,
+          `SELECT id FROM public.pedidos
+            WHERE restaurant_id=$1 AND mesa_id=$2 AND estado='pendiente_pago'
+            ORDER BY created_at DESC LIMIT 1`,
           [getRestaurantIdLoose(req), req.body.mesaId]
         );
         const existing = q.rows[0]?.id;
@@ -257,7 +330,6 @@ export const crearPedido = async (req, res) => {
     client.release();
   }
 };
-
 /** ========================
  *  PATCH /api/pedidos/:id  (admin)
  *  ======================== */
@@ -269,7 +341,7 @@ export const actualizarPedidoEstado = async (req, res) => {
 
     if (!pedidoId) return res.status(400).json({ error: "Falta el ID del pedido en la URL" });
 
-    const allowed = ["pendiente_pago", "pagado", "anulado"]; // ✅ incluye 'anulado'
+    const allowed = ["pendiente_pago", "pagado", "anulado"];
     if (!estado || !allowed.includes(estado)) {
       return res.status(400).json({ error: "Estado inválido" });
     }

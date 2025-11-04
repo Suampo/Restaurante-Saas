@@ -1,11 +1,14 @@
-// vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      fastRefresh: false, // 👈 si el warning no se va, prueba false
+      jsxRuntime: "automatic",
+    }),
+  ],
   server: { port: 5174, strictPort: true },
-  // ✅ NO incluyas "@mercadopago/sdk-react" aquí
   resolve: { dedupe: ["react", "react-dom"] },
   optimizeDeps: { include: ["react", "react-dom"] },
 });

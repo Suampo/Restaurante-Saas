@@ -3,54 +3,63 @@ export default function RestaurantHeader({
   mesaText,
   coverUrl,
   loading = false,
+  subtitle = "Servicio a la mesa",
 }) {
   return (
     <header
-      className="relative mb-5 lg:mb-4 overflow-hidden rounded-2xl shadow-sm ring-1 ring-black/5 animate-fadeInUp"
+      className="relative mb-5 overflow-hidden rounded-2xl shadow-md ring-1 ring-black/10 animate-fadeInUp lg:mb-4"
       aria-busy={loading ? "true" : "false"}
     >
-      {/* Imagen o fondo */}
-      <div className="relative h-24 w-full select-none sm:h-28 md:h-28 lg:h-22">
-        {coverUrl ? (
+      {/* tarjeta oscura */}
+      <div className="relative h-28 w-full select-none sm:h-32">
+        <div className="absolute inset-0 bg-slate-900" />
+        {coverUrl && (
           <img
             src={coverUrl}
             alt={name || "Restaurante"}
-            className="absolute inset-0 h-full w-full object-cover pointer-events-none transition-transform duration-500 group-hover:scale-105"
+            className="absolute inset-0 h-full w-full object-cover opacity-45"
             loading="lazy"
             decoding="async"
           />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-700 pointer-events-none" />
         )}
-
-        {/* Overlay con degradado */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/20 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent" />
       </div>
 
-      {/* Contenido */}
-      <div className="absolute inset-0 p-4 flex items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-100/90">
-            Restaurante
-          </div>
-
+      {/* contenido */}
+      <div className="absolute inset-0 flex items-start justify-between gap-3 p-4">
+        <div className="min-w-0 text-white">
           {loading ? (
-            <div className="mt-1 h-5 w-48 rounded bg-white/40 animate-pulse" />
+            <>
+              <div className="h-4 w-36 rounded bg-white/30 animate-pulse" />
+              <div className="mt-2 h-6 w-56 rounded bg-white/40 animate-pulse" />
+            </>
           ) : (
-            <h1 className="mt-0.5 text-xl font-extrabold leading-tight text-white drop-shadow">
-              {name || "—"}
-            </h1>
+            <>
+              <h1 className="text-xl font-extrabold leading-tight uppercase drop-shadow-sm">
+                {name || "RESTAURANTE"}
+              </h1>
+              <div className="mt-1 flex items-center gap-1 text-[13px] text-white/85">
+                <MapPin className="h-4 w-4 text-white/80" />
+                {subtitle}
+              </div>
+            </>
           )}
         </div>
 
-        {/* Badge de mesa */}
-        <div className="shrink-0 rounded-xl bg-emerald-600/95 px-3 py-2 text-right shadow-md ring-1 ring-black/10 backdrop-blur-sm lg:py-1.5">
-          <div className="text-[11px] leading-none text-emerald-100/90">
-            Mesa
-          </div>
-          <div className="text-sm font-bold text-white">{mesaText || "—"}</div>
+        {/* pill de mesa */}
+        <div className="shrink-0 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/25 backdrop-blur">
+          Mesa {mesaText || "—"}
         </div>
       </div>
     </header>
+  );
+}
+
+function MapPin(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M12 21s7-4.5 7-11a7 7 0 0 0-14 0c0 6.5 7 11 7 11z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </svg>
   );
 }

@@ -1,7 +1,6 @@
 // src/hooks/useMesas.js
 import { useEffect, useMemo, useState } from "react";
-import api from "../services/axiosInstance";
-import { getMesas, createMesa, deleteMesa } from "../services/mesasApi";
+import { getMesas, createMesa, deleteMesa, getMesaQR } from "../services/mesasApi";
 
 function useMesas() {
   const [mesas, setMesas] = useState([]);
@@ -23,9 +22,7 @@ function useMesas() {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
@@ -57,22 +54,14 @@ function useMesas() {
 
   const removeMesa = async (id) => {
     await deleteMesa(id);
-    setQrData((prev) => {
-      const c = { ...prev };
-      delete c[id];
-      return c;
-    });
-    setQrLink((prev) => {
-      const c = { ...prev };
-      delete c[id];
-      return c;
-    });
+    setQrData((prev) => { const c = { ...prev }; delete c[id]; return c; });
+    setQrLink((prev) => { const c = { ...prev }; delete c[id]; return c; });
     await load();
   };
 
   // === QR ===
   const generarQR = async (mesaId) => {
-    const { data } = await api.get(`/mesas/${mesaId}/qr`); // { ok, url, png }
+    const data = await getMesaQR(mesaId);      // { ok, url, png }
     setQrData((m) => ({ ...m, [mesaId]: data.png }));
     setQrLink((m) => ({ ...m, [mesaId]: data.url }));
   };
@@ -87,14 +76,10 @@ function useMesas() {
     mesas,
     filtered,
     loading,
-    query,
-    setQuery,
-    adding,
-    addMesa,
+    query, setQuery,
+    adding, addMesa,
     removeMesa,
-    qrData,
-    generarQR,
-    copiarQR,
+    qrData, generarQR, copiarQR,
   };
 }
 

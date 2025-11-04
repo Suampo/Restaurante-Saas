@@ -1,0 +1,37 @@
+Veo tu captura 👀, gracias por compartirla. Tu cookie se llama csrf_token y tiene estas propiedades:
+
+Domain: localhost
+
+Path: /
+
+Expires: Session (es decir, se elimina al cerrar el navegador)
+
+HttpOnly: false
+
+Secure: false
+
+Qué significa y si es seguro
+
+🔎 Análisis de cada atributo:
+
+Session ✅
+→ Bien, porque un csrf_token debería ser temporal.
+
+HttpOnly = false ⚠️
+→ Esto significa que JavaScript puede leer tu cookie (document.cookie).
+
+Si tu aplicación tiene alguna vulnerabilidad XSS, un atacante podría robar ese token.
+
+Lo ideal es que un token de seguridad como CSRF esté marcado con HttpOnly = true, para que solo el navegador lo envíe automáticamente al servidor y no pueda ser accedido vía JavaScript.
+
+Secure = false ⚠️
+→ Significa que la cookie también se envía por HTTP normal, no solo HTTPS.
+
+En producción esto no es seguro, porque alguien en la red podría interceptar la cookie.
+
+Lo correcto es poner Secure = true y asegurarte de que toda la aplicación use HTTPS.
+
+Domain/Path ✅
+
+Que esté en localhost está bien para desarrollo, en producción debería estar limitado al dominio real de tu aplicación.  
+ES LA COOKIE QUE TE ENTREGA EL CSRF PONLO EN TRUE PARA QUE SEA SEGURO WEBONASO

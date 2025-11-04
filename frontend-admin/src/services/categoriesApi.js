@@ -1,31 +1,16 @@
 import API from "./axiosInstance";
 
-// Listar (acepta { restaurantId, fresh })
-export const getCategories = (opts = {}) => {
-  const params = {};
-  if (opts.restaurantId) params.restaurantId = opts.restaurantId;
-  // 👇 cache-buster opcional para pedir “fresh”
-  if (opts.fresh) params._ = Date.now();
-  return API.get("/categorias", { params }).then((r) => r.data);
-};
+// listado, alta, rename y portada quedan igual…
 
-// Crear
-export const createCategory = (nombre, restaurantId) =>
-  API.post("/categorias", restaurantId ? { nombre, restaurantId } : { nombre })
-     .then((r) => r.data);
-
-// Renombrar
-export const updateCategory = (id, nombre) =>
-  API.put(`/categorias/${id}`, { nombre }).then((r) => r.data);
-
-// Eliminar
-export const deleteCategory = (id) =>
-  API.delete(`/categorias/${id}`).then((r) => r.data);
-
-// Subir portada (NO fijes Content-Type; deja que el browser ponga el boundary)
+export const getCategories    = async () => (await API.get("/categorias")).data;
+export const createCategory   = async (nombre) => (await API.post("/categorias", { nombre })).data;
+export const updateCategory   = async (id, nombre) => (await API.put(`/categorias/${id}`, { nombre })).data;
 export const uploadCategoryCover = async (id, file, field = "image") => {
   const fd = new FormData();
   fd.append(field, file);
-  const { data } = await API.put(`/categorias/${id}/cover`, fd);
-  return data;
+  return (await API.put(`/categorias/${id}/cover`, fd)).data;
 };
+
+// ⬇️ ahora admite borrado forzado con ?force=1
+export const deleteCategory = async (id, opts = {}) =>
+  (await API.delete(`/categorias/${id}`, { params: { force: opts.force ? 1 : 0 } })).data;

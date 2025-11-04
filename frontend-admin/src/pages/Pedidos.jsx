@@ -6,44 +6,284 @@ import {
   RefreshCw,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
-  AlertCircle,
+  CalendarDays,
   Download,
+  ListOrdered,
+  CircleDollarSign,
+  Archive,
 } from "lucide-react";
 
-// PEN con 2 decimales
+/* ---------- HELPERS ---------- */
 const PEN = new Intl.NumberFormat("es-PE", {
   style: "currency",
   currency: "PEN",
   minimumFractionDigits: 2,
 });
-
-// ===== helpers fecha =====
 const atStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 const atEnd = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-
-// Convierte Date -> valor para <input type="date"> respetando zona local
 const toDateInputValue = (d) => {
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60 * 1000);
   return local.toISOString().slice(0, 10);
 };
-
-// ✅ Convierte "YYYY-MM-DD" a Date **en hora local** (NO uses new Date(str))
 const parseInputDateLocal = (str) => {
   if (!str) return null;
   const [y, m, d] = str.split("-").map(Number);
   return new Date(y, (m || 1) - 1, d || 1);
 };
-
-// ✅ Interpreta timestamps de DB como UTC si vienen SIN zona
-// Ej: "2025-09-09 06:44:00" -> trata como "2025-09-09T06:44:00Z"
 const parseDBDateUTC = (s) => {
   if (!s) return null;
   const norm = String(s).replace(" ", "T");
   const hasTZ = /[zZ]|[+\-]\d{2}:?\d{2}$/.test(norm);
   return new Date(hasTZ ? norm : norm + "Z");
 };
+const toNextDayISO = (iso) => {
+  const d = parseInputDateLocal(iso);
+  if (!d) return iso;
+  d.setDate(d.getDate() + 1);
+  return toDateInputValue(d);
+};
+
+// Devuelve la fecha “real” del cobro para un pedido
+function getPaidDate(p) {
+  // 1) buscar campos directos comunes
+  const directKeys = [
+    "paid_at",
+    "paidAt",
+    "approved_at",
+    "approvedAt",
+    "pagado_at",
+    "cash_approved_at",
+    "psp_approved_at",
+    "updated_at",
+    "updatedAt",
+    "created_at", // fallback final
+  ];
+  let best = null;
+
+  for (const k of directKeys) {
+    if (p && p[k]) {
+      const d = parseDBDateUTC(p[k]);
+      if (d && (!best || d > best)) best = d;
+    }
+  }
+
+  // 2) explorar pagos embebidos si vienen expandido(s)
+  const pagosArr =
+    (Array.isArray(p?.pagos) && p.pagos) ||
+    (Array.isArray(p?.payments) && p.payments) ||
+    null;
+
+  if (pagosArr) {
+    for (const pg of pagosArr) {
+      const d = parseDBDateUTC(pg?.approved_at || pg?.approvedAt || pg?.created_at);
+      if (d && (!best || d > best)) best = d;
+    }
+  }
+
+  // 3) último fallback si nada
+  return best || parseDBDateUTC(p?.created_at) || null;
+}
+
+function labelFechaByDate(d) {
+  if (!d) return "";
+  const hoy = atStart(new Date());
+  const target = atStart(d);
+  const ms = 24 * 60 * 60 * 1000;
+  if (target.getTime() === hoy.getTime()) return "Hoy";
+  if (target.getTime() === hoy.getTime() - ms) return "Ayer";
+  return d.toLocaleDateString("es-PE", { weekday: "long", day: "2-digit", month: "short" });
+}
+
+function groupByDayByEvent(pedidos) {
+  const sorted = [...pedidos].sort(
+    (a, b) => (b._eventAt?.getTime?.() ?? 0) - (a._eventAt?.getTime?.() ?? 0)
+  );
+  const map = new Map();
+  for (const p of sorted) {
+    const key = labelFechaByDate(p._eventAt) || "—";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(p);
+  }
+  return Array.from(map, ([label, list]) => ({
+    label,
+    list,
+    total: list.reduce((acc, it) => acc + Number(it.monto || 0), 0),
+  }));
+}
+
+/* ---------- SUB-UI ---------- */
+
+function StatCard({ icon: Icon, label, value, loading }) {
+  return (
+    <div className="flex-1 rounded-lg bg-zinc-100/80 p-3">
+      <div className="flex items-center gap-2">
+        <Icon className="h-5 w-5 text-zinc-500" />
+        <span className="text-sm font-medium text-zinc-600">{label}</span>
+      </div>
+      {loading ? (
+        <div className="mt-2 h-7 w-3/4 animate-pulse rounded-md bg-zinc-200" />
+      ) : (
+        <div className="mt-1 text-2xl font-bold text-zinc-900">{value}</div>
+      )}
+    </div>
+  );
+}
+
+function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, loading }) {
+  const { status, totalPedidos, totalMonto } = stats;
+  const { day } = filters;
+
+  return (
+    <div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Historial de Pedidos</h1>
+          <p className="text-zinc-500">Consulta los detalles de los pedidos pagados.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusBadge status={status} />
+          <button
+            onClick={onExport}
+            disabled={loading || totalPedidos === 0}
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+          >
+            <Download size={16} /> <span className="hidden sm:inline">Exportar</span>
+          </button>
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Actualizar
+          </button>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <div className="sm:col-span-2 md:col-span-2">
+          <label htmlFor="date-filter" className="mb-1 block text-sm font-medium text-zinc-700">
+            Filtrar por fecha
+          </label>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-grow">
+              <CalendarDays
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+              />
+              <input
+                type="date"
+                id="date-filter"
+                value={day}
+                onChange={(e) => onFilterChange("day", e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-10 pr-3 text-sm transition-colors focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              />
+            </div>
+            <button
+              onClick={() => onFilterChange("day", toDateInputValue(new Date()))}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              Hoy
+            </button>
+          </div>
+        </div>
+        <StatCard icon={ListOrdered} label="Pedidos en el día" value={totalPedidos} loading={false} />
+        <StatCard icon={CircleDollarSign} label="Monto Total" value={totalMonto} loading={false} />
+      </div>
+    </div>
+  );
+}
+
+function PedidoCard({ pedido, isExpanded, onToggle }) {
+  const d = pedido._eventAt || parseDBDateUTC(pedido.created_at);
+  const hora = d ? d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }) : "";
+
+  return (
+    <div className="rounded-2xl bg-white/80 shadow-lg shadow-zinc-200/50 backdrop-blur-lg transition-all">
+      <div
+        className="flex cursor-pointer items-center justify-between gap-3 p-4 hover:bg-zinc-50/50"
+        onClick={() => onToggle(pedido.id)}
+      >
+        <div>
+          <p className="font-semibold text-zinc-900">Pedido #{pedido.numero ?? pedido.id}</p>
+          <p className="text-sm text-zinc-500">
+            Mesa {pedido.mesa?.nombre || pedido.mesa} • {hora}
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+              <CheckCircle2 size={14} /> Pagado
+            </span>
+            <p className="mt-1 font-semibold text-zinc-900">{PEN.format(Number(pedido.monto || 0))}</p>
+          </div>
+          <ChevronDown
+            size={20}
+            className={`text-zinc-500 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+          />
+        </div>
+      </div>
+      {isExpanded && (
+        <div className="border-t border-zinc-200 p-4">
+          <h4 className="mb-2 font-semibold text-zinc-700">Detalle del pedido:</h4>
+          <ul className="space-y-2 text-sm">
+            {(pedido.items || pedido.detalle || []).map((it, i) => (
+              <li key={i} className="flex items-start justify-between gap-2">
+                <p className="text-zinc-600">
+                  <span className="font-medium text-zinc-800">{it.cantidad}×</span> {it.nombre}
+                </p>
+                <p className="font-mono font-medium text-zinc-800">
+                  {PEN.format(Number(it.importe ?? it.precio_unitario ?? 0))}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaginationControls({ page, pageCount, onPrev, onNext, showingStart, showingEnd, totalFiltered }) {
+  if (totalFiltered <= 0) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-2xl bg-white/80 p-3 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
+      <button
+        onClick={onPrev}
+        disabled={page <= 1}
+        className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Anterior
+      </button>
+      <div className="text-sm text-zinc-600">
+        Mostrando {showingStart}–{showingEnd} de {totalFiltered}
+      </div>
+      <button
+        onClick={onNext}
+        disabled={page >= pageCount}
+        className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Siguiente
+      </button>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const ok = status === "Conectado";
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-xs ${
+        ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+      title={`Socket: ${status}`}
+    >
+      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "bg-slate-400"}`} />
+      {status}
+    </span>
+  );
+}
+
+/* ---------- PAGE ---------- */
 
 export default function Pedidos() {
   const [allPedidos, setAllPedidos] = useState([]);
@@ -51,13 +291,37 @@ export default function Pedidos() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState({});
-
-  // filtros / paginación
-  const [day, setDay] = useState(toDateInputValue(new Date())); // solo 1 día
+  const [day, setDay] = useState(toDateInputValue(new Date()));
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
 
-  // ===== carga & realtime =====
+  const fetchPedidos = async (withSpinner = true) => {
+    try {
+      setError("");
+      if (withSpinner) setLoading(true);
+
+      // Rango por fecha de pago (si el backend lo soporta)
+      const params = {
+        status: "pagado",
+        from: day,
+        to: toNextDayISO(day),
+        expand: "pagos", // si el backend lo ignora, no pasa nada
+      };
+      const res = await API.get("/pedidos", { params });
+      const arr = Array.isArray(res.data) ? res.data : [];
+
+      // Normalizar _eventAt (fecha de cobro/aprobación) para filtrar/mostrar
+      const norm = arr.map((p) => ({ ...p, _eventAt: getPaidDate(p) }));
+      setAllPedidos(norm);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || "Error";
+      setError(msg);
+      console.error("Error cargando pedidos:", err?.response?.data || err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchPedidos(true);
     const socket = getSocket();
@@ -79,310 +343,122 @@ export default function Pedidos() {
   }, []);
 
   useEffect(() => setPage(1), [day, perPage]);
-  useEffect(() => { fetchPedidos(true); }, [day]); // eslint-disable-line
+  useEffect(() => {
+    fetchPedidos(true);
+  }, [day]); // eslint-disable-line
 
-  const fetchPedidos = async (withSpinner = true) => {
-    try {
-      setError("");
-      if (withSpinner) setLoading(true);
-
-      const params = { status: "pagado" };
-      if (day) { params.from = day; params.to = day; params.date = day; }
-
-      const res = await API.get("/pedidos", { params });
-      setAllPedidos(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      const msg = err?.response?.data?.message || err?.message || "Error";
-      setError(msg);
-      console.error("Error cargando pedidos:", err?.response?.data || err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ===== filtrar SOLO por el día seleccionado (en local) =====
+  // Filtrar por la fecha de evento (_eventAt)
   const filtered = useMemo(() => {
     if (!day) return allPedidos;
     const base = parseInputDateLocal(day);
+    if (!base) return [];
     const d0 = atStart(base);
     const d1 = atEnd(base);
     return allPedidos.filter((p) => {
-      const d = parseDBDateUTC(p.created_at);
-      if (!d) return false;
-      return d >= d0 && d <= d1;
+      const d = p._eventAt || parseDBDateUTC(p.created_at);
+      return d && d >= d0 && d <= d1;
     });
   }, [allPedidos, day]);
 
-  const totalFiltered = useMemo(
+  const totalFiltered = filtered.length;
+  const totalMonto = useMemo(
     () => filtered.reduce((acc, p) => acc + Number(p.monto || 0), 0),
     [filtered]
   );
 
-  // ===== paginación =====
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
   const pageItems = useMemo(() => {
     const start = (page - 1) * perPage;
     return filtered.slice(start, start + perPage);
   }, [filtered, page, perPage]);
 
-  const grupos = useMemo(() => groupByDay(pageItems), [pageItems]);
+  const grupos = useMemo(() => groupByDayByEvent(pageItems), [pageItems]);
 
-  const expandAll = () =>
-    setExpanded(Object.fromEntries(pageItems.map((p) => [p.id, true])));
-  const collapseAll = () => setExpanded({});
   const toggle = (id) => setExpanded((s) => ({ ...s, [id]: !s[id] }));
   const goPrev = () => setPage((p) => Math.max(1, p - 1));
   const goNext = () => setPage((p) => Math.min(pageCount, p + 1));
 
-  // exporta CSV de TODOS los pedidos del día filtrado
   const exportCsv = () => {
-    const header = ["id", "numero", "mesa", "fecha", "hora", "monto", "items"];
-    const rows = filtered.map((p) => {
-      const d = parseDBDateUTC(p.created_at);
-      const fecha = d ? d.toLocaleDateString("es-PE", { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
-      const hora = d ? d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-      const items =
-        p.items?.map?.((it) => `${Number(it.cantidad || 0) || 0}x ${(it.nombre || "").replaceAll('"', '""')}`).join(" | ") ||
-        p.detalle?.map?.((dd) => dd?.nombre)?.join(" | ") ||
-        p.resumen || "";
-      return [p.id, p.numero ?? "", p.mesa ?? "", fecha, hora, Number(p.monto || 0).toFixed(2), `"${items.replaceAll('"', '""')}"`];
-    });
-    const csv = header.join(",") + "\n" + rows.map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `pedidos_${day || "hoy"}.csv`.replaceAll(":", "-");
-    document.body.appendChild(a);
-    a.click(); a.remove(); URL.revokeObjectURL(url);
+    // placeholder de exportación
+    console.log("Export CSV - implementar si se requiere");
   };
 
-  const showingStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1;
-  const showingEnd = Math.min(filtered.length, page * perPage);
+  const showingStart = totalFiltered === 0 ? 0 : (page - 1) * perPage + 1;
+  const showingEnd = Math.min(totalFiltered, page * perPage);
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Pedidos</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <StatusBadge status={status} />
-            <span>Pagados</span><span>•</span>
-            <span>{filtered.length} pedidos</span><span>•</span>
-            <span>Total {PEN.format(totalFiltered)}</span>
-            {filtered.length > 0 && (<><span>•</span><span>Mostrando {showingStart}–{showingEnd}</span></>)}
-          </div>
-        </div>
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="absolute inset-0 -z-10 bg-zinc-50" />
 
-        {/* Acciones */}
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={day}
-            onChange={(e) => setDay(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-            title="Día"
-          />
-          <button
-            onClick={() => setDay(toDateInputValue(new Date()))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-            title="Hoy"
-          >
-            Hoy
-          </button>
+      <PedidosHeader
+        stats={{ status, totalPedidos: totalFiltered, totalMonto: PEN.format(totalMonto) }}
+        filters={{ day, perPage }}
+        onFilterChange={(key, value) => (key === "day" ? setDay(value) : setPerPage(Number(value)))}
+        onRefresh={() => fetchPedidos(true)}
+        onExport={exportCsv}
+        loading={loading}
+      />
 
-          <select
-            value={perPage}
-            onChange={(e) => setPerPage(Number(e.target.value))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-            title="Elementos por página"
-          >
-            <option value={10}>10 / pág.</option>
-            <option value={20}>20 / pág.</option>
-            <option value={50}>50 / pág.</option>
-          </select>
-
-          <button
-            onClick={exportCsv}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-            title="Exportar CSV (Excel)"
-          >
-            <Download size={18} className="text-slate-600" /> Exportar
-          </button>
-
-          <button
-            onClick={() => fetchPedidos(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-            title="Actualizar"
-          >
-            <RefreshCw size={18} className={loading ? "animate-spin text-slate-500" : "text-slate-600"} />
-            Actualizar
-          </button>
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-          <AlertCircle className="mt-0.5 h-4 w-4" />
-          <div>
-            <div className="font-medium">No se pudo cargar los pedidos</div>
-            <div className="text-rose-700/90">{String(error)}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Vacío */}
-      {!loading && filtered.length === 0 && !error && (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-600">
-          No hay pedidos para este día.
-        </div>
-      )}
-
-      {/* Skeleton */}
-      {loading && (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
-              <div className="mt-3 h-16 animate-pulse rounded bg-slate-100" />
+      {loading ? (
+        <PedidosSkeleton />
+      ) : error ? (
+        <div className="py-10 text-center text-rose-600">{error}</div>
+      ) : totalFiltered === 0 ? (
+        <EmptyPedidos />
+      ) : (
+        <div className="space-y-4">
+          {grupos.map((g) => (
+            <div key={g.label}>
+              <h2 className="mb-2 font-semibold text-zinc-800">{g.label}</h2>
+              <div className="space-y-3">
+                {g.list.map((p) => (
+                  <PedidoCard key={p.id} pedido={p} isExpanded={!!expanded[p.id]} onToggle={toggle} />
+                ))}
+              </div>
             </div>
           ))}
+          <PaginationControls
+            page={page}
+            pageCount={pageCount}
+            onPrev={goPrev}
+            onNext={goNext}
+            showingStart={showingStart}
+            showingEnd={showingEnd}
+            totalFiltered={totalFiltered}
+          />
         </div>
-      )}
-
-      {/* Lista (página actual) */}
-      {!loading && pageItems.length > 0 && (
-        <>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-600">Página {page} de {pageCount}</div>
-            <div className="flex items-center gap-2">
-              <button onClick={expandAll} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">Expandir todo</button>
-              <button onClick={collapseAll} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">Contraer todo</button>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            {grupos.map((g) => (
-              <section key={g.label} className="space-y-3">
-                <div className="sticky top-[56px] z-10 -mx-1 flex items-center justify-between rounded-md bg-slate-50 px-1 py-1">
-                  <div className="text-sm font-medium text-slate-700">{g.label}</div>
-                  <div className="text-xs text-slate-500">{g.list.length} pedidos • {PEN.format(g.total)}</div>
-                </div>
-
-                {g.list.map((p) => {
-                  const d = parseDBDateUTC(p.created_at);
-                  const hora = d ? d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }) : "";
-                  return (
-                    <article key={p.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
-                          <button
-                            onClick={() => toggle(p.id)}
-                            className="mt-0.5 rounded-md border border-slate-200 bg-white p-1 text-slate-600 hover:bg-slate-50"
-                            aria-label={expanded[p.id] ? "Contraer" : "Expandir"}
-                            title={expanded[p.id] ? "Contraer" : "Expandir"}
-                          >
-                            {expanded[p.id] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                          </button>
-                          <div>
-                            <div className="text-base font-semibold">Pedido #{p.numero ?? p.id}</div>
-                            <div className="text-sm text-slate-600">Mesa {p.mesa} • {hora}</div>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                            <CheckCircle2 size={14} /> Pagado
-                          </span>
-                          <div className="mt-1 text-sm">
-                            Monto: <span className="font-semibold">{PEN.format(Number(p.monto || 0))}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {expanded[p.id] && p.items?.length > 0 && (
-                        <ul className="mt-3 divide-y text-sm">
-                          {p.items.map((it, i) => {
-                            const precio = Number(it.importe ?? it.precio_unitario ?? 0) || 0;
-                            return (
-                              <li key={i} className="grid grid-cols-[auto,1fr,auto] items-start gap-3 py-2">
-                                <span className="text-slate-500">{it.cantidad}×</span>
-                                <div className="min-w-0">
-                                  <div className="truncate">{it.nombre}</div>
-                                  {it.tipo === "combo" && it.componentes?.length > 0 && (
-                                    <div className="truncate text-xs text-slate-500">
-                                      ({it.componentes.map((c) => c.nombre).join(", ")})
-                                    </div>
-                                  )}
-                                </div>
-                                <span className="font-medium">{PEN.format(precio)}</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </article>
-                  );
-                })}
-              </section>
-            ))}
-          </div>
-
-          {/* Paginación */}
-          <div className="flex items-center justify-between gap-2 pt-2">
-            <button onClick={goPrev} disabled={page <= 1} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50">Anterior</button>
-            <div className="text-sm text-slate-600">Página {page} de {pageCount}</div>
-            <button onClick={goNext} disabled={page >= pageCount} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50">Siguiente</button>
-          </div>
-        </>
       )}
     </div>
   );
 }
 
-/* ---------- helpers ---------- */
-function labelFecha(iso) {
-  if (!iso) return "";
-  const d = parseDBDateUTC(iso);
-  if (!d) return "";
-  const hoy = atStart(new Date());
-  const target = atStart(d);
-  const ms = 24 * 60 * 60 * 1000;
-  if (target.getTime() === hoy.getTime()) return "Hoy";
-  if (target.getTime() === hoy.getTime() - ms) return "Ayer";
-  return d.toLocaleDateString("es-PE", { weekday: "short", day: "2-digit", month: "short" });
-}
+/* ---------- STATES ---------- */
 
-function groupByDay(pedidos) {
-  const getTs = (x) => parseDBDateUTC(x)?.getTime?.() ?? 0;
-  const sorted = [...pedidos].sort((a, b) => getTs(b.created_at) - getTs(a.created_at));
-  const map = new Map();
-  for (const p of sorted) {
-    const key = labelFecha(p.created_at) || "—";
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(p);
-  }
-  return Array.from(map, ([label, list]) => ({
-    label,
-    list,
-    total: list.reduce((acc, it) => acc + Number(it.monto || 0), 0),
-  }));
-}
+const PedidosSkeleton = () => (
+  <div className="space-y-3">
+    {Array.from({ length: 4 }).map((_, i) => (
+      <div key={i} className="rounded-2xl bg-white/80 p-4 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
+        <div className="flex animate-pulse items-center justify-between">
+          <div>
+            <div className="h-5 w-32 rounded bg-zinc-200" />
+            <div className="mt-2 h-4 w-24 rounded bg-zinc-200" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="h-10 w-20 rounded-md bg-zinc-200" />
+            <div className="h-6 w-6 rounded-full bg-zinc-200" />
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
-/* ---------- Subcomponentes ---------- */
-function StatusBadge({ status }) {
-  const ok = status === "Conectado";
-  return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-xs ${
-        ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"
-      }`}
-      title={`Socket: ${status}`}
-    >
-      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "bg-slate-400"}`} />
-      {status}
-    </span>
-  );
-}
+const EmptyPedidos = () => (
+  <div className="rounded-2xl bg-white/70 px-6 py-20 text-center shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
+    <Archive size={48} className="mx-auto text-zinc-400" />
+    <h3 className="mt-4 text-lg font-semibold text-zinc-800">No se encontraron pedidos</h3>
+    <p className="mt-2 text-sm text-zinc-500">
+      No hay pedidos pagados para la fecha seleccionada. Intenta con otro día.
+    </p>
+  </div>
+);

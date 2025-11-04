@@ -1,35 +1,43 @@
 // src/middlewares/requireCsrf.js
 const SAFE = ["GET", "HEAD", "OPTIONS"];
 
-// Añadimos las rutas reales que no deben exigir CSRF al inicio de sesión / refresh.
 const BYPASS_PREFIX = [
-  "/api/auth/login",
-  "/api/auth/session",
+  "/api/session/login",
+  "/api/session/refresh",
+  "/api/csrf",
   "/api/auth/logout",
+  "/api/auth/session",
+  "/api/auth/login",
   "/api/auth/login-cliente",
-  "/api/session/login",     // 👈 añade esto
-  "/api/session/refresh",   // 👈 y esto
-  "/api/csrf",              // para sembrar CSRF
-  "/api/webhooks",          // webhooks externos
+  "/api/webhooks",
 ];
 
 export function requireCsrf(req, res, next) {
-  // Métodos "seguros" no requieren token
   const method = (req.method || "GET").toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+  if (SAFE.includes(method)) return next();
 
-  // cookie sembrada en server.js
+  // 1) Rutas que siempre saltan CSRF
+  if (BYPASS_PREFIX.some((p) => (req.path || "").startsWith(p))) return next();
+
+  // 2) Si viene autenticación (Bearer o x-db-token) o cookie admin, saltamos CSRF
+  const hasAuthHeader =
+    !!req.headers.authorization ||
+    !!req.headers.Authorization ||
+    !!req.headers["x-db-token"];
+  const hasAdminCookie = !!req.cookies?.admin_session;
+
+  if (hasAuthHeader || hasAdminCookie) return next();
+
+  // 3) Público: exigir CSRF (cookie + header/body)
   const cookieToken = (req.cookies?.csrf_token || "").trim();
-
-  // header que mandamos desde el front
   const headerToken =
-    (req.get("X-CSRF-Token") || req.get("x-csrf-token") || req.get("X-XSRF-Token") || "").trim();
-
-  // fallback por si lo pasan en body/query (no recomendado)
+    (req.get("x-csrf-token") ||
+      req.get("X-CSRF-Token") ||
+      req.get("X-XSRF-Token") ||
+      "").trim();
   const bodyToken = (req.body?._csrf || req.query?._csrf || "").trim();
 
   const sent = headerToken || bodyToken;
-
   if (!cookieToken || !sent || cookieToken !== sent) {
     return res.status(403).json({ error: "CSRF inválido" });
   }

@@ -4,14 +4,12 @@
 @theme {
   --font-sans: Inter, ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
   --font-serif: "Playfair Display", Georgia, ui-serif, serif;
-  /* 👇 esto crea la utilidad `font-montserrat` */
   --font-montserrat: "Montserrat", var(--font-sans);
 }
 
 @layer base {
   html, body, #root { @apply min-h-screen; }
-  body { @apply bg-white text-rose-50 font-sans antialiased; }
-  /* ahora sí existe `font-montserrat` */
+  body { @apply bg-white font-sans antialiased; }
   h1,h2,h3,.heading { @apply font-montserrat font-extrabold uppercase tracking-wide; }
 }
 
@@ -21,23 +19,36 @@
   .badge-on-img { @apply absolute bottom-0 inset-x-0 bg-white/85 text-neutral-900 px-3 py-2 font-medium; }
   .badge-on-img-dark { @apply absolute bottom-0 inset-x-0 bg-black/60 text-white px-3 py-2 font-medium; }
 
-  /* 🔹 Tarjeta con hover animado */
-  .tile-hover {
-    @apply transform transition-all duration-300 hover:scale-[1.03] hover:shadow-lg;
-  }
+  /* 🔹 Tarjeta con hover (sin zoom forzado, lo controlamos con .hover-zoom) */
+  .tile-hover { @apply transition-all duration-300 hover:-translate-y-[2px] hover:shadow-lg; }
 
-  /* 🔹 Botón de flecha con hover */
-  .arrow-btn {
-    @apply rounded-full bg-white shadow-lg ring-1 ring-black/5 p-2 
-           hover:scale-110 hover:shadow-xl transition-all duration-200 ease-out;
-  }
+  /* 🔹 Botón de flecha */
+  .arrow-btn { @apply rounded-full bg-white shadow-lg ring-1 ring-black/5 p-2 hover:shadow-xl transition-all duration-200 ease-out; }
 
   /* 🔹 Gradientes laterales para carrusel */
-  .carousel-gradient-left {
-    @apply pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent;
+  .carousel-gradient-left  { @apply pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent; }
+  .carousel-gradient-right { @apply pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent; }
+
+  /* ===== Hover Zoom utilidades (PC y móvil) ===== */
+  .hover-zoom { position: relative; }
+  .hover-zoom-img {
+    transition: transform 300ms cubic-bezier(.2,.8,.2,1);
+    will-change: transform;
+    transform-origin: center center;
   }
-  .carousel-gradient-right {
-    @apply pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent;
+  /* Desktop: hover / focus */
+  @media (hover:hover) {
+    .hover-zoom:hover .hover-zoom-img,
+    .hover-zoom:focus-within .hover-zoom-img { transform: scale(1.03); }
+    .hover-zoom:active .hover-zoom-img { transform: scale(1.02); }
+  }
+  /* Móvil: tap (active) */
+  @media (hover:none) {
+    .hover-zoom:active .hover-zoom-img { transform: scale(1.03); }
+  }
+  /* Accesibilidad: respeta reduce motion */
+  @media (prefers-reduced-motion: reduce) {
+    .hover-zoom-img { transition: none !important; }
   }
 }
 
@@ -46,22 +57,11 @@
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* 🔹 Animaciones */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .animate-fadeInUp { animation: fadeInUp 0.6s ease-out forwards; }
-
-@keyframes fadeInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
+@keyframes fadeInLeft { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
 .animate-fadeInLeft { animation: fadeInLeft 0.6s ease-out forwards; }
 
 * { -webkit-tap-highlight-color: transparent; }
@@ -75,15 +75,32 @@
 .hide-x-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ===== Fix móvil para MP Bricks ===== */
-.mp-card-wrap {
-  width: 100%;
-  max-width: 360px;
-  margin-left: auto;
-  margin-right: auto;
-}
+.mp-card-wrap { width: 100%; max-width: 360px; margin-left: auto; margin-right: auto; }
 @media (min-width: 380px) { .mp-card-wrap { max-width: 420px; } }
-/* Asegura que el contenedor interno del Brick no desborde */
 .mp-card-wrap > div { width: 100% !important; max-width: 100% !important; }
 
 /* Evita “rebote” del scroll dentro del modal en iOS/Android */
 .fixed.inset-0 { overscroll-behavior: contain; }
+
+/* Altura dinámica del CartBar (se actualiza desde el componente) */
+:root { --cart-bar-h: 0px; }
+.pb-cartbar { padding-bottom: max(var(--cart-bar-h), 0px) }
+
+/* ===== CartSheet animations ===== */
+@keyframes sheet-in   { 0% { transform: translateY(100%);} 65% {transform: translateY(-10px);} 100% { transform: translateY(0);} }
+@keyframes sheet-out  { 0% { transform: translateY(var(--y,0)); } 100% { transform: translateY(100%);} }
+@keyframes overlay-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes overlay-out{ from { opacity: 1 } to { opacity: 0 } }
+
+.cart-overlay[data-state="open"]   { animation: overlay-in .25s ease-out both; }
+.cart-overlay[data-state="closed"] { animation: overlay-out .22s ease-in both; }
+
+.cart-panel { will-change: transform; transform: translateY(100%); }
+.cart-panel[data-state="open"]    { animation: sheet-in 460ms cubic-bezier(.16,1,.3,1) both; }
+.cart-panel[data-state="closing"] { animation: sheet-out 260ms cubic-bezier(.22,.61,.36,1) both; }
+
+/* === NUEVO: evitar que algo quede tapado por la CartBar === */
+.avoid-cartbar {
+  /* espacio extra al fondo de vistas con scroll (e.g., ProductSheet main) */
+  padding-bottom: calc(var(--cart-bar-h) + env(safe-area-inset-bottom));
+}

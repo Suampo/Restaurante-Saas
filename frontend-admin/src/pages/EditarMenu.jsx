@@ -1,8 +1,9 @@
 // pages/EditarMenu.jsx
 import React, { useEffect, useState } from "react";
-import axios from "../services/axiosInstance";
-import MenuItemEdit from "../components/MenuItemEdit";
+import API from "../services/axiosInstance";
 
+
+import MenuItemEdit from "../components/MenuItemEdit";
 const EditarMenu = () => {
   const [menuItems, setMenuItems] = useState([]);
 

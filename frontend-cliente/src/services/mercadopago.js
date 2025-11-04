@@ -31,6 +31,18 @@ function apiPsp(path) {
   return base.replace(/\/+$/, "") + path;
 }
 
+/* ========== Device ID de MP.js v2 (fraude) ========== */
+function getMpDeviceId() {
+  try {
+    const pk = window.__MP_INIT_KEY || import.meta.env.VITE_MP_PUBLIC_KEY;
+    if (!window.MercadoPago || !pk) return null;
+    const mp = new window.MercadoPago(pk, { locale: "es-PE" });
+    return typeof mp.getDeviceId === "function" ? mp.getDeviceId() : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ========== Public Key (para @mercadopago/sdk-react) ========== */
 export async function getMPPublicKey(restaurantId) {
   const url =
@@ -55,6 +67,7 @@ export async function payWithCardViaBrick({
   const idem =
     idempotencyKey ||
     String(metadata?.intentId || metadata?.pedidoId || Date.now());
+  const deviceId = getMpDeviceId();
 
   const url =
     apiPsp("/psp/mp/payments/card") + (rid ? `?restaurantId=${rid}` : "");
@@ -64,12 +77,13 @@ export async function payWithCardViaBrick({
     headers: withCsrf({
       "Content-Type": "application/json",
       "X-Idempotency-Key": idem,
+      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}), // <<<<<< obligatorio (fraude)
     }),
     body: JSON.stringify({
       amount: Number(amount),
       formData,
       description,
-      metadata, // { restaurantId, intentId, pedidoId }
+      metadata, // { restaurantId, intentId, pedidoId, ... }
     }),
   });
 
@@ -80,9 +94,9 @@ export async function payWithCardViaBrick({
   return res.json();
 }
 
-/* ========== Pago con Yape (Payment Brick → token) ========== */
+/* ========== Pago con Yape (token de MP.js v2) ========== */
 export async function payWithYape({
-  token,             // ← viene del Payment Brick (formData.token)
+  token,
   amount,
   email,
   description,
@@ -95,6 +109,7 @@ export async function payWithYape({
   const idem =
     idempotencyKey ||
     String(metadata?.intentId || metadata?.pedidoId || Date.now());
+  const deviceId = getMpDeviceId();
 
   const url =
     apiPsp("/psp/mp/payments/yape") + (rid ? `?restaurantId=${rid}` : "");
@@ -104,13 +119,14 @@ export async function payWithYape({
     headers: withCsrf({
       "Content-Type": "application/json",
       "X-Idempotency-Key": idem,
+      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}), // <<<<<< obligatorio (fraude)
     }),
     body: JSON.stringify({
       token,
       amount: Number(amount),
       email,
       description,
-      metadata, // { restaurantId, intentId, pedidoId }
+      metadata, // { restaurantId, intentId, pedidoId, ... }
     }),
   });
 

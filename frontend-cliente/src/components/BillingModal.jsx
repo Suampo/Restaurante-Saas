@@ -4,12 +4,15 @@ import { payWithCardViaBrick, payWithYape } from "../services/mercadopago";
 import { useMenuPublic } from "../hooks/useMenuPublic";
 import { abandonarIntent } from "../services/checkout";
 
-/* ===================== ICONS (inline, sin dependencias) ===================== */
+/* ===================== ICONS ===================== */
 const IconCard = (p) => (
   <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v1h14V7a1 1 0 0 0-1-1H6zm13 5H5v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6zM7 16h4a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2z"/></svg>
 );
 const IconYape = (p) => (
   <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M17 2H7a3 3 0 0 0-3 3v14l4-3h9a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3z"/></svg>
+);
+const IconCash = (p) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M3 6h18v12H3zM5 8v8h14V8H5zm7 2a3 3 0 110 6 3 3 0 010-6z"/></svg>
 );
 const IconLock = (p) => (
   <svg viewBox="0 0 24 24" width="14" height="14" {...p}><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z"/></svg>
@@ -20,8 +23,9 @@ export default function BillingModal({
   open,
   onClose,
   loading = false,
-  onSubmit,          // crea/actualiza la INTENT + PEDIDO
-  MP,                // { Payment, CardPayment } desde @mercadopago/sdk-react
+  onSubmit,          // crea/actualiza INTENT + PEDIDO para tarjeta/yape
+  onPayCash,         // genera pedido con saldo pendiente por efectivo
+  MP,                // { CardPayment } desde @mercadopago/sdk-react
   showCard = false,
   orderInfo = null,  // { intentId, amount (SOLES), restaurantId, pedidoId?, email? }
   onBackToForm,
@@ -43,16 +47,18 @@ export default function BillingModal({
 
   // estados UI
   const [success, setSuccess] = useState(null); // { amount, pedidoId }
+  const [cashCreated, setCashCreated] = useState(null); // { amount, pedidoId }
   const [processing, setProcessing] = useState(false);
 
   const amountSoles = useMemo(
-    () => Math.max(1, Number(orderInfo?.amount || 0)), // asegura número > 0
+    () => Math.max(1, Number(orderInfo?.amount || 0)),
     [orderInfo?.amount]
   );
 
   useEffect(() => {
     if (!open) {
       setSuccess(null);
+      setCashCreated(null);
       setProcessing(false);
     }
   }, [open]);
@@ -74,8 +80,8 @@ export default function BillingModal({
   };
 
   const handleHeaderClose = async () => {
-   // ⛔️ No anular si ya se pagó
-   if (showCard && orderInfo?.intentId && !success) {
+    // No anules intent si ya hay pago OK
+    if (showCard && orderInfo?.intentId && !success) {
       try { await abandonarIntent(orderInfo.intentId); } catch {}
     }
     onClose?.();
@@ -85,6 +91,12 @@ export default function BillingModal({
     setSuccess({
       amount: Number(amount || amountSoles || 0),
       pedidoId: orderInfo?.pedidoId || orderInfo?.pedido_id || null,
+    });
+  };
+  const showCashCreated = ({ amount, pedidoId }) => {
+    setCashCreated({
+      amount: Number(amount || amountSoles || 0),
+      pedidoId: pedidoId ?? orderInfo?.pedidoId ?? null,
     });
   };
 
@@ -104,7 +116,10 @@ export default function BillingModal({
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 shrink-0 bg-gradient-to-r from-white/70 to-white/40 backdrop-blur">
           <h2 className="text-base sm:text-lg font-semibold tracking-tight text-neutral-900" id="billing-title">
-            {success ? "Pago recibido" : showCard ? "Pago seguro" : isSunat ? "Datos para Boleta/Factura" : "Datos del cliente (opcional)"}
+            {success ? "Pago recibido"
+             : cashCreated ? "Pedido generado (paga en caja)"
+             : showCard ? "Pago seguro"
+             : isSunat ? "Datos para Boleta/Factura" : "Datos del cliente (opcional)"}
           </h2>
           <button
             type="button"
@@ -126,18 +141,34 @@ export default function BillingModal({
               note={orderNote}
               onClose={onClose}
             />
+          ) : cashCreated ? (
+            <CashCreatedView
+              amount={cashCreated.amount}
+              pedidoId={cashCreated.pedidoId}
+              orderSummary={orderSummary}
+              note={orderNote}
+              onClose={onClose}
+            />
           ) : showCard && orderInfo ? (
             <PayTabs
               MP={MP}
               amountSoles={amountSoles}
               orderInfo={orderInfo}
               onBackToForm={async () => {
-   if (!success && orderInfo?.intentId) { try { await abandonarIntent(orderInfo.intentId); } catch {} }
-   onBackToForm?.();
- }}
- onClose={handleHeaderClose}
+                if (!success && orderInfo?.intentId) {
+                  try { await abandonarIntent(orderInfo.intentId); } catch {}
+                }
+                onBackToForm?.();
+              }}
+              onClose={handleHeaderClose}
               orderSummary={orderSummary}
               onMpApproved={() => showSuccess(amountSoles)}
+              onCashCreate={async () => {
+                // llamado desde la pestaña EFECTIVO
+                if (!onPayCash) return alert("onPayCash no implementado");
+                const resp = await onPayCash({ amount: amountSoles });
+                showCashCreated({ amount: resp?.amount ?? amountSoles, pedidoId: resp?.pedidoId });
+              }}
             />
           ) : (
             <form onSubmit={submitForm} noValidate>
@@ -248,8 +279,9 @@ function PayTabs({
   onClose,
   orderSummary,
   onMpApproved,
+  onCashCreate,
 }) {
-  const [tab, _setTab] = useState("card"); // 'card' | 'yape'
+  const [tab, _setTab] = useState("card"); // 'card' | 'yape' | 'cash'
   const [switching, setSwitching] = useState(false);
   const setTab = (t) => {
     if (switching || t === tab) return;
@@ -283,6 +315,9 @@ function PayTabs({
           <TogglePill active={tab === "yape"} onClick={() => setTab("yape")}>
             <span className="mr-1.5 inline-flex"><IconYape /></span>Yape
           </TogglePill>
+          <TogglePill active={tab === "cash"} onClick={() => setTab("cash")}>
+            <span className="mr-1.5 inline-flex"><IconCash /></span>Efectivo
+          </TogglePill>
         </div>
 
         <div className="mt-4 rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
@@ -290,7 +325,7 @@ function PayTabs({
           {tab === "card" && (
             <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
               <h3 className="mb-3 text-sm font-medium text-neutral-900">Tarjeta de crédito o débito</h3>
-              <div className="mp-card-wrap min-h-[320px]">
+              <div className="min-h-[320px]">
                 <CardBrick
                   MP={MP}
                   amountSoles={amountSoles}
@@ -304,7 +339,7 @@ function PayTabs({
             </div>
           )}
 
-          {/* Yape (form + tokenización) */}
+          {/* Yape */}
           {tab === "yape" && (
             <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
               <h3 className="mb-3 text-sm font-medium text-neutral-900">Pagar con Yape</h3>
@@ -316,6 +351,24 @@ function PayTabs({
                 buyerEmail={orderInfo?.email}
                 onApproved={() => onMpApproved?.()}
               />
+            </div>
+          )}
+
+          {/* Efectivo */}
+          {tab === "cash" && (
+            <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
+              <h3 className="mb-3 text-sm font-medium text-neutral-900">Efectivo en local</h3>
+              <p className="mb-3 text-sm text-neutral-700">
+                Generaremos tu pedido y quedará <b>pendiente por pagar en caja</b>.
+                Muéstrale tu número de pedido al mozo para completar el cobro.
+              </p>
+              <button
+                type="button"
+                onClick={onCashCreate}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20 hover:bg-emerald-700"
+              >
+                Confirmar y pagar en caja (S/ {amountSoles.toFixed(2)})
+              </button>
             </div>
           )}
         </div>
@@ -391,7 +444,7 @@ function OrderSummary({ orderSummary }) {
   );
 }
 
-/* ===================== CARD BRICK ===================== */
+/* ===================== CARD BRICK (simplificado) ===================== */
 const CardBrick = React.memo(function CardBrick({
   MP,
   amountSoles,
@@ -401,147 +454,85 @@ const CardBrick = React.memo(function CardBrick({
   onApproved,
 }) {
   const PaymentCmp = MP?.CardPayment;
-  const wrapRef = useRef(null);
-  const unmounted = useRef(false);
+  const [ready, setReady] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
 
-  const [reloadKey, setReloadKey] = useState(0);
+  // id estable por intent (fuerza remount si cambia el intent o el monto)
   const brickKey = useMemo(
-    () => `intent-${intentId}-amt-${amountSoles}-rel${reloadKey}`,
-    [intentId, amountSoles, reloadKey]
+    () => `intent-${intentId || "na"}-amt-${Number(amountSoles).toFixed(2)}`,
+    [intentId, amountSoles]
   );
-
-  // Sólo montamos cuando el contenedor está visible y con tamaño > mínimo
-  const [canMount, setCanMount] = useState(false);
-  useEffect(() => {
-    if (!wrapRef.current) return;
-    let ready = false;
-    let timer = null;
-    const MIN_W = 260, MIN_H = 200;
-
-    const check = (rect, visible) => {
-      const ok = visible && rect.width >= MIN_W && rect.height >= MIN_H;
-      if (ok && !ready) {
-        timer = setTimeout(() => { if (!unmounted.current) { ready = true; setCanMount(true); } }, 250);
-      } else if (!ok) {
-        if (timer) clearTimeout(timer);
-        if (ready) { ready = false; setCanMount(false); }
-      }
-    };
-
-    const ro = new ResizeObserver(() => {
-      const el = wrapRef.current; if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const visible = !!(el.offsetParent !== null || rect.width || rect.height);
-      check(rect, visible);
-    });
-    const io = new IntersectionObserver((entries) => {
-      const entry = entries[0]; const el = wrapRef.current; if (!el) return;
-      const rect = el.getBoundingClientRect(); check(rect, entry && entry.isIntersecting);
-    }, { threshold: 0.05 });
-
-    ro.observe(wrapRef.current); io.observe(wrapRef.current);
-    const el = wrapRef.current; if (el) { const rect = el.getBoundingClientRect(); check(rect, true); }
-    return () => { if (timer) clearTimeout(timer); ro.disconnect(); io.disconnect(); };
-  }, [reloadKey]);
-  useEffect(() => () => { unmounted.current = true; }, []);
-
-  const [brickError, setBrickError] = useState(null);
-  if (!PaymentCmp) {
-    return <div className="rounded-lg border bg-white p-3 text-sm text-rose-700">No se pudo cargar el formulario de pago.</div>;
-  }
-
- const handleSubmit = (cardData) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      // En algunas versiones viene como { formData }, en otras viene plano.
-      const fd = cardData?.formData || cardData;
-
-      if (!fd?.token) {
-        console.warn("[CardPayment] formData sin token:", fd);
-        alert("Completa los datos de la tarjeta");
-        return reject(new Error("Token no generado por el Brick"));
-      }
-
-      const resp = await payWithCardViaBrick({
-        amount: Number(amountSoles),
-        formData: {
-          token: fd.token,
-          payment_method_id: fd.payment_method_id,
-          issuer_id: fd.issuer_id,
-          installments: Number(fd.installments || 1),
-          payer: {
-            // usa lo que devuelva el brick, y pon un fallback por si acaso
-            email: fd?.payer?.email || "",
-            identification: fd?.payer?.identification,
-          },
-        },
-        description: `Pedido ${pedidoId ?? "-"} / Intent ${intentId}`,
-        metadata: { intentId, restaurantId, pedidoId },
-        idempotencyKey: String(intentId || pedidoId),
-      });
-
-      if (resp?.status === "approved") onApproved?.();
-      else alert(`Estado: ${resp?.status} (${resp?.status_detail || ""})`);
-      resolve(resp);
-    } catch (e) {
-      console.error("CardPayment submit error:", e);
-      alert("Error procesando tarjeta");
-      reject(e);
-    }
-  });
-  const handleError = (e) => {
-    if (unmounted.current) return;
-    console.error("CardPayment Brick error:", e);
-    setBrickError(e || { type: "critical", cause: "unknown" });
-  };
-
   const containerId = `cardPaymentBrick_container_${brickKey}`;
 
-  return (
-    <div ref={wrapRef} className="min-h-[320px]">
-      {!canMount && !brickError && (
-        <div className="rounded-lg border bg-white p-3 text-sm text-neutral-600">Cargando formulario de pago…</div>
-      )}
+  if (!PaymentCmp) {
+    return (
+      <div className="rounded-lg border bg-white p-3 text-sm text-rose-700">
+        No se pudo cargar el formulario de pago.
+      </div>
+    );
+  }
 
-      {brickError ? (
-        <div className="rounded-lg border bg-white p-4 text-sm">
-          <div className="mb-2 font-medium text-rose-700">No se pudo inicializar el formulario seguro.</div>
-          <div className="text-neutral-700">
-            {String(brickError.cause || "").includes("fields_setup_failed")
-              ? "El contenedor pudo estar oculto o el navegador bloqueó iframes de terceros."
-              : "Ha ocurrido un problema al cargar el formulario de pago."}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-lg border px-3 py-2 text-sm hover:bg-neutral-50"
-              onClick={() => { setBrickError(null); setCanMount(false); setTimeout(() => setReloadKey((k) => k + 1), 350); }}
-            >
-              Reintentar
-            </button>
-            <a href="https://www.whatismybrowser.com/detect/is-javascript-enabled" target="_blank" rel="noreferrer" className="text-xs text-neutral-500 underline">
-              Consejos (bloqueadores/JS)
-            </a>
-          </div>
+  const handleSubmit = (cardData) =>
+    new Promise(async (resolve, reject) => {
+      try {
+        const fd = cardData?.formData || cardData;
+        if (!fd?.token) {
+          alert("Completa los datos de la tarjeta");
+          return reject(new Error("Token no generado por el Brick"));
+        }
+
+        const resp = await payWithCardViaBrick({
+          amount: Number(amountSoles),
+          formData: {
+            token: fd.token,
+            payment_method_id: fd.payment_method_id,
+            issuer_id: fd.issuer_id,
+            installments: Number(fd.installments || 1),
+            payer: {
+              email: fd?.payer?.email || "",
+              identification: fd?.payer?.identification,
+            },
+          },
+          description: `Pedido ${pedidoId ?? "-"} / Intent ${intentId}`,
+          metadata: { intentId, restaurantId, pedidoId },
+          idempotencyKey: String(intentId || pedidoId || Date.now()),
+        });
+
+        if (resp?.status === "approved") onApproved?.();
+        else alert(`Estado: ${resp?.status} ${resp?.status_detail ? `(${resp.status_detail})` : ""}`);
+        resolve(resp);
+      } catch (e) {
+        setErrMsg(e?.message || "Error procesando tarjeta");
+        reject(e);
+      }
+    });
+
+  return (
+    <div className="min-h-[320px]">
+      <div id={containerId} />
+      <PaymentCmp
+        key={brickKey}
+        containerProps={{ id: containerId }}
+        initialization={{ amount: Number(amountSoles) }}
+        onSubmit={handleSubmit}
+        onReady={() => setReady(true)}
+        onError={(e) => setErrMsg(e?.message || "No se pudo inicializar el formulario de pago")}
+      />
+      {!ready && !errMsg && (
+        <div className="mt-2 rounded-lg border bg-white p-3 text-sm text-neutral-600">
+          Cargando formulario de pago…
         </div>
-      ) : canMount ? (
-        <>
-          <div id={containerId} />
-          <PaymentCmp
-            key={brickKey}
-            containerProps={{ id: containerId }}
-            initialization={{ amount: Number(amountSoles) }}
-            onSubmit={handleSubmit}
-            onError={handleError}
-            onReady={() => console.log("CardPayment Brick listo")}
-          />
-        </>
-      ) : null}
+      )}
+      {!!errMsg && (
+        <div className="mt-2 rounded-lg border bg-white p-3 text-sm text-rose-700">
+          {errMsg}
+        </div>
+      )}
     </div>
   );
 });
 
-/* ===================== YAPE FORM (tokenización) ===================== */
+/* ===================== YAPE FORM ===================== */
 function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, onApproved }) {
   const [phone, setPhone] = React.useState("");
   const [otp, setOtp] = React.useState("");
@@ -567,8 +558,6 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
 
       const safeEmail = (buyerEmail || "").trim() || `yape+${intentId || Date.now()}@example.com`;
 
-      console.log("[YapeForm] monto enviado:", amt);
-
       const resp = await payWithYape({
         token,
         amount: amt,
@@ -580,8 +569,7 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
 
       if (resp?.status === "approved") onApproved?.();
       else alert(`Estado: ${resp?.status} (${resp?.status_detail || ""})`);
-    } catch (err) {
-      console.error("YapeForm error:", err);
+    } catch {
       alert("No se pudo tokenizar Yape");
     } finally {
       setLoading(false);
@@ -590,13 +578,11 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
 
   return (
     <form onSubmit={submit} className="space-y-4 text-neutral-900">
-      {/* aviso mínimo */}
       {belowMin && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
           El monto mínimo para Yape es <b>S/ {MIN.toFixed(2)}</b>.
         </div>
       )}
-
       <FloatingInput
         label="Celular"
         value={phone}
@@ -613,28 +599,20 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
         inputMode="numeric"
         required
       />
-
       <button
         type="submit"
         disabled={loading || belowMin}
-        className="group inline-flex items-center justify-center rounded-xl
-                   bg-gradient-to-t from-emerald-600 to-emerald-500 px-4 py-2
-                   text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20
-                   transition hover:from-emerald-500 hover:to-emerald-400
-                   disabled:opacity-60"
+        className="group inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
       >
         <span className="mr-2 inline-flex"><IconYape /></span>
         {loading ? "Procesando…" : "Pagar con Yape"}
       </button>
-
-      <p className="text-[12px] text-neutral-600">
-        Se cobrará <b>S/ {amt.toFixed(2)}</b> vía Yape.
-      </p>
+      <p className="text-[12px] text-neutral-600">Se cobrará <b>S/ {amt.toFixed(2)}</b> vía Yape.</p>
     </form>
   );
 }
 
-/* ===================== SUCCESS ===================== */
+/* ===================== SUCCESS (CARD/YAPE) ===================== */
 function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
   return (
     <div className="space-y-4">
@@ -656,7 +634,49 @@ function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
         ) : (
           <OrderSummary orderSummary={orderSummary} />
         )}
+        {note ? (
+          <div className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">
+            <div className="mb-1 font-medium text-neutral-900">Nota para cocina</div>
+            <div>{note}</div>
+          </div>
+        ) : null}
+      </div>
 
+      <div className="text-right">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-neutral-800"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== CASH CREATED ===================== */
+function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+        <div className="font-semibold text-amber-900">Pedido generado</div>
+        <div className="text-sm">Muéstralo en caja para pagar en efectivo.</div>
+        {pedidoId ? <div className="text-sm mt-1">Pedido #{pedidoId}</div> : null}
+      </div>
+
+      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
+        <div className="text-sm text-neutral-600">Importe a pagar en caja</div>
+        <div className="mt-1 text-3xl font-extrabold text-neutral-900">S/ {Number(amount || 0).toFixed(2)}</div>
+      </div>
+
+      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
+        <h4 className="mb-2 text-sm font-medium text-neutral-900">Resumen del pedido</h4>
+        {(!orderSummary || orderSummary.length === 0) ? (
+          <div className="text-sm text-neutral-600">Sin ítems.</div>
+        ) : (
+          <OrderSummary orderSummary={orderSummary} />
+        )}
         {note ? (
           <div className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">
             <div className="mb-1 font-medium text-neutral-900">Nota para cocina</div>
@@ -702,7 +722,6 @@ function LabeledInput({ id, label, value, onChange, className = "", ...rest }) {
   );
 }
 
-/* Floating style input para el formulario Yape */
 function FloatingInput({ label, value, onChange, className = "", ...rest }) {
   const active = String(value || "").length > 0;
   return (
@@ -735,13 +754,9 @@ function TogglePill({ active, onClick, children }) {
       onClick={onClick}
       aria-pressed={active}
       className={`relative rounded-full px-4 py-1.5 text-sm font-medium transition
-        ${active
-          ? "bg-white shadow-sm text-neutral-900"
-          : "text-neutral-700 hover:bg-white/70"}`}
+        ${active ? "bg-white shadow-sm text-neutral-900" : "text-neutral-700 hover:bg-white/70"}`}
     >
-      <span
-        className={`absolute inset-0 -z-10 rounded-full bg-gradient-to-r from-emerald-500/0 to-emerald-500/0 transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
-      />
+      <span className={`absolute inset-0 -z-10 rounded-full bg-gradient-to-r from-emerald-500/0 to-emerald-500/0 transition-opacity ${active ? "opacity-100" : "opacity-0"}`} />
       {children}
     </button>
   );

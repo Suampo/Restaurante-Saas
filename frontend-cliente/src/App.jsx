@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
 import { crearOActualizarIntent } from "./services/checkout";
+import { crearIntentTakeaway } from "./services/checkout.takeaway";
 
 import Home from "./pages/Home";
 import Category from "./pages/Category";
@@ -105,6 +106,15 @@ function useUrlParams() {
   };
 }
 
+// === Helper para detectar Takeaway por URL/mesaCode ===
+function useIsTakeaway(mesaCode) {
+  return useMemo(() => {
+    const qs = new URLSearchParams(location.search);
+    const mesaCodeUpper = String(mesaCode || "").toUpperCase();
+    return qs.get("takeaway") === "1" || mesaCodeUpper === "LLEVAR";
+  }, [mesaCode]);
+}
+
 const parseJwt = (t) => {
   try { return JSON.parse(atob(t.split(".")[1])); } catch { return {}; }
 };
@@ -136,6 +146,7 @@ function AppInner() {
   const [showCard, setShowCard] = useState(false);
 
   const { mesaId, restaurantId, mesaCode } = useUrlParams();
+  const isTakeaway = useIsTakeaway(mesaCode);
 
   // Snapshot para mostrar en BillingModal
   const [checkoutSummary, setCheckoutSummary] = useState([]);
@@ -145,6 +156,15 @@ function AppInner() {
   const [checkoutNote, setCheckoutNote] = useState("");
 
   useEffect(() => { ensureCsrfCookie(); }, []);
+
+  // 👉 Publica la altura del CartBar como CSS var para que los modales la respeten
+  useEffect(() => {
+    const h = itemCount > 0 ? CARTBAR_H : 0;
+    document.documentElement.style.setProperty("--cart-bar-h", `${h}px`);
+    return () => {
+      if (itemCount === 0) document.documentElement.style.setProperty("--cart-bar-h", "0px");
+    };
+  }, [itemCount]);
 
   // 🔐 Auto-login + siembra cookie httpOnly + validación por cookie
   const autoLogin = useCallback(async () => {
@@ -207,11 +227,18 @@ function AppInner() {
   }, [restaurantId]);
 
   const mapCartToPedidoItems = (c) =>
-    c.map((i) =>
-      i.isCombo
-        ? { isCombo: true, comboId: i.comboId, cantidad: i.cantidad }
-        : { id: i.id, cantidad: i.cantidad }
-    );
+   c.map((i) => {
+     if (i.isCombo) {
+       const base = { combo_id: i.comboId, cantidad: i.cantidad };
+       // Soporte V2 (grupos)
+       if (Array.isArray(i.grupos) && i.grupos.length) return { ...base, grupos: i.grupos };
+       // Fallback legacy
+       if (i.entrada?.id) base.entradaId = i.entrada.id;
+       if (i.plato?.id)   base.platoId   = i.plato.id;
+       return base;
+     }
+     return { menu_item_id: i.id, cantidad: i.cantidad };
+   });
 
   const handlePay = useCallback(
     async (billing) => {
@@ -226,23 +253,44 @@ function AppInner() {
 
         await autoLogin();
 
-        // 1) Mesa
-        let mesaIdToUse = mesaId && Number(mesaId) > 0 ? Number(mesaId) : null;
-        if (!mesaIdToUse && mesaCode) {
-          try { mesaIdToUse = await apiResolveMesaId(restaurantId, mesaCode); } catch { mesaIdToUse = null; }
-        }
-        if (!mesaIdToUse) {
-          alert("Mesa no válida para este restaurante.");
-          return;
+        // (1) Resolver mesaIdToUse
+        let mesaIdToUse = null;
+        if (!isTakeaway) {
+          // Dine-in: exigimos mesa válida
+          if (mesaId && Number(mesaId) > 0) {
+            mesaIdToUse = Number(mesaId);
+          } else if (mesaCode) {
+            try { mesaIdToUse = await apiResolveMesaId(restaurantId, mesaCode); } catch { mesaIdToUse = null; }
+          }
+          if (!mesaIdToUse) {
+            alert("Mesa no válida para este restaurante.");
+            setBillingLoading(false);
+            return;
+          }
+        } else {
+          // Takeaway: esperamos que el QR provea la mesa LLEVAR
+          if (mesaId && Number(mesaId) > 0) {
+            mesaIdToUse = Number(mesaId);
+          } else if (mesaCode) {
+            try { mesaIdToUse = await apiResolveMesaId(restaurantId, mesaCode); } catch { mesaIdToUse = null; }
+          }
+          if (!mesaIdToUse) {
+            alert("QR inválido o falta la mesa 'LLEVAR'. Vuelve a escanear el QR.");
+            setBillingLoading(false);
+            return;
+          }
         }
 
-        // 2) Comprobante (si SUNAT)
+        // (2) Nota
+        const noteFromSheet =
+          typeof window !== "undefined" ? (window.__CHECKOUT_NOTE__ || "") : "";
+        const noteToUse = String((checkoutNote || noteFromSheet || "")).trim() || null;
+
+        // (3) Comprobante (si SUNAT)
         const comprobanteTipo =
-          billingMode === "sunat"
-            ? (billing?.docType === "RUC" ? "01" : "03")
-            : null;
+          billingMode === "sunat" ? (billing?.docType === "RUC" ? "01" : "03") : null;
 
-        // 3) Crear PEDIDO (nota incluida)
+        // (4) Crear PEDIDO (en takeaway lo asociamos a la mesa LLEVAR)
         let pedido = null;
         try {
           pedido = await apiCreatePedido({
@@ -263,7 +311,7 @@ function AppInner() {
               : null,
             billingEmail: billing?.email || null,
             billingMode,
-            note: checkoutNote || null,
+            note: noteToUse,
           });
         } catch (e) {
           if (e?.response?.status === 409) {
@@ -273,16 +321,17 @@ function AppInner() {
             alert(typeof e?.response?.data === "object"
                 ? JSON.stringify(e.response.data)
                 : e?.response?.data || e?.message || "Error creando el pedido");
+            setBillingLoading(false);
             return;
           }
         }
 
+        // (5) Total/amount del pedido
         const pedidoId = Number(pedido?.id ?? pedido?.pedidoId ?? pedido?.pedido_id ?? 0);
         if (!pedidoId) {
           console.warn("No se recibió pedidoId del backend ", pedido);
         }
 
-        // Total/amount del pedido:
         let amountSoles = null;
         if (pedido?.total != null) amountSoles = Number(pedido.total);
         else if (pedido?.amount != null) {
@@ -292,18 +341,29 @@ function AppInner() {
           amountSoles = Number(total.toFixed(2));
         }
 
-        // 4) Intent (opcional) — también mandamos la nota
+        // (6) Crear INTENT
         let intent = null;
         try {
-          intent = await crearOActualizarIntent({
+          const payloadIntent = {
             restaurantId,
-            mesaId: mesaIdToUse,
             amount: Number(amountSoles.toFixed(2)),
             cart: cartSnapshot(cart),
-            note: checkoutNote || null,
-          });
-        } catch {}
+            note: noteToUse,
+          };
+          // Solo en salón incluimos mesaId (permite reusar por mesa)
+          if (!isTakeaway && mesaIdToUse) {
+            payloadIntent.mesaId = mesaIdToUse;
+          }
 
+          intent = isTakeaway
+            ? await crearIntentTakeaway(payloadIntent)      // ← SIEMPRE nuevo (concurrencia independiente)
+            : await crearOActualizarIntent(payloadIntent);  // ← reusa por mesa en salón
+        } catch (e) {
+          console.error("INTENT ERROR:", e?.response?.data || e?.message || e);
+          // Puedes permitir efectivo aunque falle la creación del intent
+        }
+
+        // (7) Info para modal
         setOrderInfo({
           intentId: intent?.id || null,
           restaurantId,
@@ -313,7 +373,7 @@ function AppInner() {
           email: billing?.email || "cliente@example.com",
         });
 
-        // snapshot para el modal
+        // (8) Snapshot para el modal
         setCheckoutSummary(
           cart.map(i => ({
             name: i.isCombo ? `Combo ${i.comboId}` : i.nombre,
@@ -322,30 +382,31 @@ function AppInner() {
           }))
         );
 
-        // 5) Inicializa MP React una sola vez
+        // (9) Inicializa MP React
         try {
           const mod = await getMP(restaurantId);
           setMP(mod);
         } catch (e) {
           console.error("MP init error:", e?.message || e);
           alert("No se pudo inicializar el pago con tarjeta.");
+          setBillingLoading(false);
           return;
         }
 
         setShowCard(true);
         setOpenBilling(true);
       } catch (e) {
-        console.error("INTENT/PEDIDO ERROR:", e.response?.data || e.message);
+        console.error("INTENT/PEDIDO ERROR:", e?.response?.data || e?.message);
         alert(
           typeof e?.response?.data === "object"
-            ? JSON.stringify(e.response?.data)
-            : (e.response?.data || e.message)
+            ? JSON.stringify(e?.response?.data)
+            : e?.response?.data || e?.message
         );
       } finally {
         setBillingLoading(false);
       }
     },
-    [total, mesaId, mesaCode, restaurantId, cart, autoLogin, billingMode, checkoutNote]
+    [total, mesaId, mesaCode, restaurantId, cart, autoLogin, billingMode, checkoutNote, isTakeaway]
   );
 
   return (
@@ -359,7 +420,7 @@ function AppInner() {
       )}
 
       <div
-        className="min-h-svh"
+        className="min-h-svh flex flex-col"
         style={
           itemCount > 0
             ? { paddingBottom: `calc(${CARTBAR_H}px + env(safe-area-inset-bottom))` }
@@ -430,7 +491,7 @@ function AppInner() {
         orderInfo={orderInfo}
         onBackToForm={() => setShowCard(false)}
         orderSummary={checkoutSummary}
-        orderNote={checkoutNote}
+        orderNote={checkoutNote || (typeof window !== "undefined" ? (window.__CHECKOUT_NOTE__ || "") : "")}
       />
     </>
   );
@@ -458,7 +519,6 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
     const clean = String(txt).trim();
     if (!clean) return;
     const current = String(note || "").trim();
-    // evita duplicados exactos
     const exists = current.toLowerCase().includes(clean.toLowerCase());
     const next = exists ? current : (current ? `${current}, ${clean}` : clean);
     onChange(next.slice(0, limit));
@@ -476,7 +536,6 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
         rounded-3xl border border-white/10 bg-white/80 backdrop-blur-xl
         shadow-[0_10px_40px_-5px_rgba(0,0,0,.25)] ring-1 ring-black/5
       ">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-white/70 to-white/40">
           <h2 className="text-base sm:text-lg font-semibold tracking-tight text-neutral-900">
             NOTA PARA COCINA <span className="text-neutral-400 font-normal">(opcional)</span>
@@ -491,13 +550,11 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-5 space-y-4">
           <p className="text-[13px] text-neutral-600">
             ¿Algo especial para tu plato? Ej.: sin arroz, con presa específica, sin cebolla, etc.
           </p>
 
-          {/* Chips de sugerencias */}
           <div className="flex flex-wrap gap-2">
             {suggestions.map((s) => (
               <button
@@ -512,7 +569,6 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
             ))}
           </div>
 
-          {/* Textarea con label flotante */}
           <div className="relative">
             <textarea
               id="order-note"
@@ -540,7 +596,6 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
               Ej.: sin arroz y con presa pechuga, por favor.
             </label>
 
-            {/* contador */}
             <div
               className={`
                 absolute bottom-2.5 right-3 text-[11px]
@@ -552,7 +607,6 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-2 border-t bg-white/95 px-5 py-3">
           <button
             type="button"
