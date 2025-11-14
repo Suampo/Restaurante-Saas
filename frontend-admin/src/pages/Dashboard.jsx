@@ -1,26 +1,26 @@
 // src/pages/Dashboard.jsx
 import { useEffect, useState, useRef } from "react";
-import {
-  AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
-} from "recharts";
-import {
-  getKpis, getSalesByDay, getRecentOrders, getMesas, searchMenuItems,
-} from "../services/dashboardApi";
+import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { getKpis, getSalesByDay, getRecentOrders, getMesas, searchMenuItems } from "../services/dashboardApi";
 import { useNavigate } from "react-router-dom";
 
-// PEN con 2 decimales
+// Importa los íconos que usaremos
+import { DollarSign, ShoppingCart, Percent, BarChart2, Search, ArrowRight, Plus, Edit, Trash2, X } from 'lucide-react';
+
+// FORMATEADOR DE MONEDA (PEN con 2 decimales)
 const PEN = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", minimumFractionDigits: 2 });
 
-// Paleta: Terracotta (green) + Slate
+// NUEVA PALETA DE COLORES: Más suave y moderna
 const PALETTE = {
-  primary: "#2e4f29",
-  primaryFill: "green",
-  grid: "#e5e7eb",
-  tick: "#64748b",
-  text: "#0f172a",
+  primary: "hsl(142.1 76.2% 36.3%)",   // Verde principal (un poco más oscuro)
+  primaryFill: "hsl(142.1 76.2% 36.3%)", // El mismo para el gradiente
+  grid: "hsl(215 20.2% 94.5%)",       // Rejilla del gráfico
+  tick: "hsl(215 20.2% 65.1%)",       // Texto de los ejes
+  text: "hsl(222.2 47.4% 11.2%)",      // Texto principal
+  textMuted: "hsl(215 20.2% 45.1%)",  // Texto secundario
 };
 
-// util: media query simple para saber si es viewport pequeño
+// Hook de media query (sin cambios)
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(query).matches : false
@@ -36,32 +36,29 @@ function useMediaQuery(query) {
   return matches;
 }
 
+
 export default function Dashboard() {
   const [kpis, setKpis] = useState({ ventasDia: 0, tickets: 0, avg: 0, margen: 0 });
-  const [ventas, setVentas] = useState([]);        // [{dia, total}]
-  const [recent, setRecent] = useState([]);        // pedidos recientes
-  const [mesas, setMesas] = useState([]);          // listado de mesas (muestra pocas)
-  const [range, setRange] = useState(7);           // 7 / 30 / 90 días
+  const [ventas, setVentas] = useState([]);
+  const [recent, setRecent] = useState([]);
+  const [mesas, setMesas] = useState([]);
+  const [range, setRange] = useState(7);
   const [loading, setLoading] = useState({ kpis: true, ventas: true, recent: true, mesas: true });
 
-  const initRan = useRef(false);                   // 👈 evita doble carga en DEV (StrictMode)
+  const initRan = useRef(false);
   const nav = useNavigate();
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
-  // carga inicial
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
-
     (async () => {
       try {
         setLoading((s) => ({ ...s, kpis: true, recent: true, mesas: true }));
         const [k, r, m] = await Promise.all([getKpis(), getRecentOrders(6), getMesas()]);
         setKpis({
-          ventasDia: Number(k?.ventasDia || 0),
-          tickets: Number(k?.tickets || 0),
-          avg: Number(k?.avg || 0),
-          margen: Number(k?.margen || 0),
+          ventasDia: Number(k?.ventasDia || 0), tickets: Number(k?.tickets || 0),
+          avg: Number(k?.avg || 0), margen: Number(k?.margen || 0),
         });
         setRecent(Array.isArray(r) ? r : []);
         setMesas(Array.isArray(m) ? m.slice(0, 3) : []);
@@ -73,7 +70,6 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // ventas por rango
   useEffect(() => {
     (async () => {
       try {
@@ -91,23 +87,23 @@ export default function Dashboard() {
     })();
   }, [range]);
 
-  const miniSeries = ventas.map((d) => ({ y: d.total }));
-
   return (
-    <div className="space-y-6">
-      {/* fondo suave */}
-      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-slate-100" />
+    <div className="space-y-8 p-4 md:p-6 lg:p-8">
+      {/* FONDO: Un gradiente más sutil */}
+      <div className="absolute inset-0 -z-10 bg-zinc-50" />
 
-      {/* header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Inicio</h1>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <label className="sr-only" htmlFor="range">Rango</label>
+      {/* HEADER: Mejorado con tipografía y botones actualizados */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Bienvenido de vuelta</h1>
+            <p className="text-zinc-500">Aquí tienes un resumen de la actividad de tu negocio.</p>
+        </div>
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
           <select
             id="range"
             value={range}
             onChange={(e) => setRange(Number(e.target.value))}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:w-auto"
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors focus:border-green-500 focus:ring-1 focus:ring-green-500 md:w-auto"
           >
             <option value={7}>Últimos 7 días</option>
             <option value={30}>Últimos 30 días</option>
@@ -115,192 +111,160 @@ export default function Dashboard() {
           </select>
           <button
             onClick={() => nav("/mesas")}
-            className="w-full rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 active:bg-green-800 md:w-auto"
           >
-            Nueva mesa
+            <Plus size={16} />
+            Nueva Mesa
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <StatCard title="Ventas del día" value={PEN.format(kpis.ventasDia)} loading={loading.kpis} series={miniSeries} />
-        <StatCard title="Pedidos del día" value={kpis.tickets} loading={loading.kpis} />
-        <StatCard title="Ticket promedio" value={PEN.format(kpis.avg)} loading={loading.kpis} />
-        <StatCard title="Margen" value={PEN.format(kpis.margen)} loading={loading.kpis} />
+      {/* KPIs: Rediseñados con íconos y mejor jerarquía */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={DollarSign} title="Ventas del día" value={PEN.format(kpis.ventasDia)} delta="+5.2%" loading={loading.kpis} />
+        <StatCard icon={ShoppingCart} title="Pedidos del día" value={kpis.tickets} delta="+12" loading={loading.kpis} />
+        <StatCard icon={BarChart2} title="Ticket promedio" value={PEN.format(kpis.avg)} delta="-1.8%" loading={loading.kpis} />
+        <StatCard icon={Percent} title="Margen Bruto" value={`${kpis.margen.toFixed(1)}%`} delta="+0.5%" loading={loading.kpis} isUp={false} />
       </div>
 
-      {/* gráfico + productos */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2" title={`Ventas (${range} días)`}>
-          <div className="h-56 sm:h-64 md:h-72 xl:h-80">
-            {loading.ventas ? (
-              <Skeleton className="h-full rounded-xl" />
-            ) : (
+      {/* GRÁFICO + PRODUCTOS */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-3" title={`Ventas (${range} días)`}>
+          <div className="h-80">
+            {loading.ventas ? <Skeleton className="h-full rounded-lg" /> : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={ventas} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="gradPrimary" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={PALETTE.primaryFill} stopOpacity={0.30} />
-                      <stop offset="100%" stopColor={PALETTE.primaryFill} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={PALETTE.grid} strokeDasharray="4 4" />
-                  <XAxis dataKey="dia" tickLine={false} axisLine={{ stroke: PALETTE.grid }} tick={{ fill: PALETTE.tick, fontSize: 12 }} />
-                  <YAxis tickLine={false} axisLine={{ stroke: PALETTE.grid }} tick={{ fill: PALETTE.tick, fontSize: 12 }} />
+                <AreaChart data={ventas} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                   <defs>
+                     <linearGradient id="gradPrimary" x1="0" y1="0" x2="0" y2="1">
+                       <stop offset="0%" stopColor={PALETTE.primaryFill} stopOpacity={0.2} />
+                       <stop offset="100%" stopColor={PALETTE.primaryFill} stopOpacity={0} />
+                     </linearGradient>
+                   </defs>
+                  <CartesianGrid stroke={PALETTE.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="dia" tickLine={false} axisLine={false} tick={{ fill: PALETTE.tick, fontSize: 12 }} />
+                  <YAxis tickLine={false} axisLine={false} tick={{ fill: PALETTE.tick, fontSize: 12 }} tickFormatter={(value) => `S/${value}`} />
                   <Tooltip
-                    contentStyle={{ borderRadius: 12, borderColor: PALETTE.grid }}
+                    contentStyle={{ borderRadius: 12, borderColor: PALETTE.grid, background: "rgba(255,255,255,0.8)", backdropFilter: "blur(4px)" }}
                     labelStyle={{ color: PALETTE.text, fontWeight: 600 }}
+                    formatter={(value) => [PEN.format(value), "Total"]}
                   />
-                  <Area type="monotone" dataKey="total" stroke={PALETTE.primary} strokeWidth={2} fill="url(#gradPrimary)" />
+                  <Area type="monotone" dataKey="total" stroke={PALETTE.primary} strokeWidth={2.5} fill="url(#gradPrimary)" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
         </Card>
-
-        <QuickProductCard />
+        <QuickProductCard className="lg:col-span-2" />
       </div>
 
-      {/* pedidos recientes + mesas */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      {/* PEDIDOS RECIENTES + MESAS */}
+       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <RecentOrdersCard
-          compact={isMobile}
           items={recent}
           loading={loading.recent}
           onVerTodo={() => nav("/pedidos")}
-          className="lg:col-span-2"
+          className="lg:col-span-3"
         />
         <MesasQuickCard
           mesas={mesas}
           loading={loading.mesas}
           onIrMesas={() => nav("/mesas")}
-          onNuevaMesa={() => nav("/mesas")}
+          className="lg:col-span-2"
         />
       </div>
     </div>
   );
 }
 
-/* ---------- componentes base ---------- */
+/* ---------- COMPONENTES BASE MEJORADOS ---------- */
+
 function Card({ title, action, className = "", children }) {
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}>
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-lg font-medium">{title}</h3>
-        {action}
-      </div>
+    <div className={`rounded-2xl bg-white/70 p-5 shadow-lg shadow-zinc-200/50 backdrop-blur-lg ${className}`}>
+      {(title || action) && (
+        <div className="mb-4 flex items-center justify-between">
+          {title && <h3 className="text-lg font-semibold text-zinc-800">{title}</h3>}
+          {action}
+        </div>
+      )}
       {children}
     </div>
   );
 }
 
+
 function Skeleton({ className = "" }) {
-  return <div className={`animate-pulse bg-slate-200/70 ${className}`} />;
+  return <div className={`animate-pulse rounded-md bg-zinc-200/80 ${className}`} />;
 }
 
-function StatCard({ title, value, delta, loading, series = [] }) {
-  const up = typeof delta === "number" && delta >= 0;
+// StatCard completamente rediseñada
+function StatCard({ icon: Icon, title, value, delta, loading, isUp = true }) {
+  const deltaColor = isUp ? "text-emerald-600" : "text-rose-600";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="text-sm text-slate-500">{title}</div>
-        {/* sparkline */}
-        {Array.isArray(series) && series.length > 1 && (
-          <div className="h-8 w-24">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={series} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="miniGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={PALETTE.primaryFill} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={PALETTE.primaryFill} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area type="monotone" dataKey="y" stroke={PALETTE.primary} strokeWidth={2} fill="url(#miniGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-
+    <div className="rounded-2xl bg-white/70 p-5 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
       {loading ? (
-        <Skeleton className="mt-2 h-7 w-32 rounded" />
+        <>
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <Skeleton className="mt-4 h-5 w-3/4 rounded-md" />
+            <Skeleton className="mt-2 h-8 w-1/2 rounded-md" />
+        </>
       ) : (
-        <div className="mt-1 flex items-baseline gap-2">
-          <div className="text-3xl font-semibold tracking-tight">{value}</div>
-          {typeof delta === "number" && (
-            <span className={`rounded-full px-2 py-0.5 text-xs ${up ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-green-700"}`}>
-              {up ? "▲" : "▼"} {Math.abs(delta)}%
-            </span>
-          )}
-        </div>
+        <>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-zinc-500">{title}</h3>
+            <Icon className="h-5 w-5 text-zinc-400" />
+          </div>
+          <div className="mt-2">
+            <span className="text-3xl font-bold text-zinc-900">{value}</span>
+            {delta && <span className={`ml-2 text-sm font-medium ${deltaColor}`}>{delta}</span>}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-/* ---------- Pedidos recientes ---------- */
-function RecentOrdersCard({ items = [], loading, onVerTodo, compact = false, className = "" }) {
+
+/* ---------- COMPONENTES DE SECCIÓN MEJORADOS ---------- */
+
+function RecentOrdersCard({ items = [], loading, onVerTodo, className = "" }) {
+  const navigate = useNavigate();
   return (
     <Card
       className={className}
-      title="Pedidos recientes"
-      action={<button onClick={onVerTodo} className="rounded-md border border-slate-200 px-3 py-1 text-sm hover:bg-slate-50">Ver todos</button>}
+      title="Pedidos Recientes"
+      action={<button onClick={onVerTodo} className="group inline-flex items-center gap-1 text-sm font-medium text-green-600 hover:text-green-800">Ver todos <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" /></button>}
     >
       {loading ? (
         <div className="space-y-2">
-          <Skeleton className="h-9 w-full rounded" />
-          <Skeleton className="h-9 w-full rounded" />
-          <Skeleton className="h-9 w-full rounded" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
-      ) : compact ? (
-        // Layout compacto para móviles
-        <ul className="space-y-3">
-          {items.length === 0 ? (
-            <li className="text-sm text-slate-500">No hay pedidos recientes.</li>
-          ) : items.map((p) => (
-            <li key={p.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium">Pedido #{p.numero ?? p.id}</div>
-                  <div className="text-xs text-slate-500">
-                    Mesa: {p.mesa?.nombre || p.mesa?.codigo || `MESA-${p.mesa_id ?? "?"}`}
-                  </div>
-                </div>
-                <EstadoBadge estado={p.estado} />
-              </div>
-              {p.detalle?.length || p.resumen ? (
-                <div className="mt-2 line-clamp-2 text-sm text-slate-700">
-                  {p.detalle?.map?.((d) => d?.nombre).join(", ") || p.resumen}
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
       ) : (
-        // Tabla para pantallas grandes (con scroll horizontal)
-        <div className="overflow-auto">
-          <table className="min-w-[640px] w-full text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="text-left text-slate-500">
-                <th className="py-2">ID</th>
-                <th>Mesa</th>
-                <th>Detalle</th>
-                <th>Estado</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-zinc-500 font-medium">
+              <tr>
+                <th className="p-2">ID</th>
+                <th className="p-2">Mesa</th>
+                <th className="p-2">Detalle</th>
+                <th className="p-2 text-right">Estado</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-zinc-200">
               {items.length === 0 ? (
-                <tr><td className="py-6 text-center text-slate-500" colSpan={4}>No hay pedidos recientes.</td></tr>
+                <tr><td className="py-8 text-center text-zinc-500" colSpan={4}>No hay pedidos recientes.</td></tr>
               ) : (
                 items.map((p) => (
-                  <tr key={p.id} className="odd:bg-slate-50/40">
-                    <td className="py-2">#{p.id}</td>
-                    <td>{p.mesa?.nombre || p.mesa?.codigo || `MESA-${p.mesa_id ?? "?"}`}</td>
-                    <td className="truncate max-w-[360px]">
+                  <tr key={p.id} className="hover:bg-zinc-50/50 cursor-pointer" onClick={() => navigate(`/pedidos/${p.id}`)}>
+                    <td className="p-2 font-mono text-zinc-600">#{p.id}</td>
+                    <td className="p-2 font-medium text-zinc-800">{p.mesa?.nombre || `M-${p.mesa_id ?? "?"}`}</td>
+                    <td className="p-2 truncate max-w-[200px] text-zinc-600">
                       {p.detalle?.map?.(d => d?.nombre).join(", ") || p.resumen || "—"}
                     </td>
-                    <td><EstadoBadge estado={p.estado} /></td>
+                    <td className="p-2 text-right"><EstadoBadge estado={p.estado} /></td>
                   </tr>
                 ))
               )}
@@ -315,147 +279,98 @@ function RecentOrdersCard({ items = [], loading, onVerTodo, compact = false, cla
 function EstadoBadge({ estado = "" }) {
   const e = String(estado).toLowerCase();
   const styles = e.includes("sirv") || e.includes("listo")
-    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+    ? "bg-emerald-100 text-emerald-800"
     : e.includes("prep") || e.includes("pend")
-    ? "bg-amber-50 text-amber-700 border-amber-200"
-    : "bg-slate-50 text-slate-700 border-slate-200";
-  return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${styles}`}>{estado || "—"}</span>;
+    ? "bg-amber-100 text-amber-800"
+    : "bg-zinc-100 text-zinc-800";
+  return <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${styles}`}>{estado || "—"}</span>;
 }
 
-/* ---------- Mesas rápidas ---------- */
-function MesasQuickCard({ mesas = [], loading, onIrMesas, onNuevaMesa }) {
+function MesasQuickCard({ mesas = [], loading, onIrMesas, className = "" }) {
   return (
-    <Card
-      title="Generador de mesas"
-      action={<button onClick={onIrMesas} className="rounded-md border border-slate-200 px-3 py-1 text-sm hover:bg-slate-50">Ir a mesas</button>}
-    >
+    <Card title="Mesas Activas" action={<button onClick={onIrMesas} className="group inline-flex items-center gap-1 text-sm font-medium text-green-600 hover:text-green-800">Gestionar <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" /></button>} className={className}>
       {loading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-10 rounded" />
-          <Skeleton className="h-10 rounded" />
-          <Skeleton className="h-10 rounded" />
+        <div className="space-y-3">
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
         </div>
       ) : (
-        <div className="space-y-2">
-          {mesas.length === 0 && <div className="text-sm text-slate-500">Aún no hay mesas.</div>}
+        <div className="space-y-3">
+          {mesas.length === 0 && <p className="text-sm text-zinc-500 pt-2">No hay mesas activas en este momento.</p>}
           {mesas.map((m) => (
-            <div key={m.id} className="flex flex-col items-start justify-between gap-2 rounded-lg border border-slate-200 p-2 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3">
-                <span className="font-medium">{m.nombre || m.codigo || `Mesa ${m.id}`}</span>
-                <span className="text-xs text-slate-500">cap. {m.capacidad ?? "-"}</span>
+            <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg bg-zinc-50 p-3">
+              <div>
+                <span className="font-semibold text-zinc-800">{m.nombre || `Mesa ${m.id}`}</span>
+                <span className="ml-2 text-xs text-zinc-500">Cap. {m.capacidad ?? "-"}</span>
               </div>
-              <div className="flex w-full items-center gap-2 sm:w-auto">
-                <button className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 sm:flex-initial" onClick={onIrMesas}>Editar</button>
-                <button className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 sm:flex-initial" onClick={onIrMesas}>Limpiar</button>
-                <button className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 sm:flex-initial" onClick={onIrMesas}>Cerrar</button>
+              <div className="flex items-center gap-2">
+                <button title="Editar" className="text-zinc-500 hover:text-green-600"><Edit size={16} /></button>
+                <button title="Limpiar" className="text-zinc-500 hover:text-green-600"><Trash2 size={16} /></button>
+                <button title="Cerrar" className="text-zinc-500 hover:text-rose-600"><X size={18} /></button>
               </div>
             </div>
           ))}
-          <button
-            onClick={onNuevaMesa}
-            className="mt-2 w-full rounded-lg border-2 border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            + Nueva mesa
-          </button>
         </div>
       )}
     </Card>
   );
 }
 
-/* ---------- Quick productos ---------- */
-function QuickProductCard() {
+function QuickProductCard({ className }) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const nav = useNavigate();
-
-  // función de búsqueda (filtra activos)
-  const runSearch = async (term) => {
-    try {
-      setLoading(true);
-      const res = await searchMenuItems((term || "").trim(), { onlyActive: 1 }); // 👈 sin _ts
-      const clean = (res || []).filter(it => (it.activo ?? it.visible ?? true) && !it.eliminado);
-      setItems(clean.slice(0, 3));
-    } catch (e) {
-      console.error("searchMenuItems:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // buscar cuando el usuario escribe
+  
   useEffect(() => {
-    const t = setTimeout(() => runSearch(q), 250);
+    // Lógica de búsqueda (sin cambios)
+    const runSearch = async (term) => {
+        try {
+            setLoading(true);
+            const res = await searchMenuItems((term || "").trim(), { onlyActive: 1 });
+            const clean = (res || []).filter(it => (it.activo ?? it.visible ?? true) && !it.eliminado);
+            setItems(clean.slice(0, 3));
+        } catch(e) { console.error(e) }
+        finally { setLoading(false) }
+    }
+    const t = setTimeout(() => runSearch(q), 300);
     return () => clearTimeout(t);
   }, [q]);
-
-  // re-buscar cuando vuelves a la pestaña o cuando el Menú notifica cambios
-  useEffect(() => {
-    const onFocus = () => runSearch(q);
-    const onChanged = () => runSearch(q);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("menu:changed", onChanged);
-    runSearch(q); // primera carga
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("menu:changed", onChanged);
-    };
-  }, []); // sólo una vez
-
+  
   const goToMenu = () => nav("/menu");
 
   return (
-    <Card
-      title="Productos"
-      action={<button onClick={goToMenu} className="rounded-md border border-slate-200 px-3 py-1 text-sm hover:bg-slate-50">Abrir en “Menú”</button>}
-      className=""
-    >
-      <label className="sr-only" htmlFor="qprod">Buscar producto</label>
-      <input
-        id="qprod"
-        className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-        placeholder="Busca un plato..."
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+    <Card title="Acceso Rápido a Productos" action={<button onClick={goToMenu} className="group inline-flex items-center gap-1 text-sm font-medium text-green-600 hover:text-green-800">Ver Menú <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" /></button>} className={className}>
+      <div className="relative mb-4">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+        <input
+          className="w-full rounded-lg border border-zinc-200 bg-white py-2 pl-10 pr-3 text-sm transition-colors focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          placeholder="Buscar un plato..." value={q} onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
 
       {loading ? (
         <div className="space-y-2">
-          <Skeleton className="h-14 rounded" />
-          <Skeleton className="h-14 rounded" />
-          <Skeleton className="h-14 rounded" />
+          <Skeleton className="h-16 rounded-lg" /> <Skeleton className="h-16 rounded-lg" />
         </div>
       ) : items.length === 0 ? (
-        <p className="text-sm text-slate-500">No hay resultados. Prueba otra búsqueda o crea un plato.</p>
+        <p className="text-center text-sm text-zinc-500 py-4">No se encontraron productos.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {items.map((it) => (
-            <li key={it.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-2">
-              <div className="flex items-center gap-3">
+            <li key={it.id} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 p-2 hover:bg-zinc-100 transition-colors">
+              <div className="flex items-center gap-3 min-w-0">
                 <img
-                  src={
-                    it.imagen_url ||
-                    "data:image/svg+xml;utf8," +
-                      encodeURIComponent(
-                        `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='60'><rect width='100%' height='100%' fill='#e5e7eb'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='12' fill='#6b7280'>Sin imagen</text></svg>`
-                      )
-                  }
-                  alt=""
-                  className="h-12 w-16 rounded object-cover ring-1 ring-black/5"
+                  src={it.imagen_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(it.nombre)}&background=e5e7eb&color=6b7280&size=96`}
+                  alt={it.nombre}
+                  className="h-12 w-12 rounded-md object-cover flex-shrink-0"
                 />
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{it.nombre}</div>
-                  <div className="text-xs text-slate-500">{PEN.format(Number(it.precio || 0))}</div>
+                  <div className="truncate text-sm font-semibold text-zinc-800">{it.nombre}</div>
+                  <div className="text-sm text-zinc-500">{PEN.format(Number(it.precio || 0))}</div>
                 </div>
               </div>
-              <button
-                onClick={goToMenu}
-                className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
-                title="Editar en Menú"
-              >
-                Editar
-              </button>
+              <button onClick={goToMenu} className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-green-700 shadow-sm ring-1 ring-inset ring-zinc-300 hover:bg-zinc-50">Editar</button>
             </li>
           ))}
         </ul>

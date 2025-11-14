@@ -1,59 +1,112 @@
 // backend-facturacion/src/routes/psp.mercadopago.js
 const express = require('express');
 const router = express.Router();
+const ensureIntentActive = require('../middlewares/ensureIntentActive'); // ✅ carpeta singular
+const { supabase } = require('../services/supabase');
 
 let MPConfig, Preference, Payment;
 try {
   const mp = require('mercadopago');
   MPConfig = mp.MercadoPagoConfig;
   Preference = mp.Preference;
-  Payment = mp.Payment;
+  Payment   = mp.Payment;
 } catch (e) {
   console.error('[mercadopago] no instalado. Ejecuta: npm i mercadopago');
   throw e;
 }
 
-function getKeys() {
+/* -------------------- Helpers de configuración -------------------- */
+function baseEnv() {
   return {
-    publicKey: process.env.MP_PUBLIC_KEY,
-    accessToken: process.env.MP_ACCESS_TOKEN,
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
-    baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`,
-    webhookUrl: (process.env.MP_WEBHOOK_URL || '').trim(), // opcional: forzar webhook externo
+    baseUrl: (process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`).trim(),
+    webhookUrl: (process.env.MP_WEBHOOK_URL || '').trim(),
   };
 }
 
-function buildWebhookUrl(restaurantId) {
-  const { baseUrl, webhookUrl } = getKeys();
+/** Obtiene claves para el restaurantId:
+ * 1) psp_credentials (mercadopago, active=true)
+ * 2) restaurantes (public_key/secret_key)
+ * 3) .env (fallback)
+ */
+async function getKeysAsync(req) {
+  const md = req.body?.metadata || {};
+  const restaurantId = Number(req.query.restaurantId || md.restaurantId || 0);
+  let publicKey = null, accessToken = null, mode = 'test';
+
+  if (restaurantId) {
+    // 1) psp_credentials
+    const { data: cred } = await supabase
+      .from('psp_credentials')
+      .select('public_key, secret_key, mode, provider, active')
+      .eq('restaurant_id', restaurantId)
+      .eq('provider', 'mercadopago')
+      .eq('active', true)
+      .maybeSingle();
+
+    if (cred?.public_key && cred?.secret_key) {
+      publicKey   = cred.public_key;
+      accessToken = cred.secret_key;
+      mode        = cred.mode || 'test';
+    }
+
+    // 2) restaurantes (fallback)
+    if (!publicKey || !accessToken) {
+      const { data: rest } = await supabase
+        .from('restaurantes')
+        .select('public_key, secret_key')
+        .eq('id', restaurantId)
+        .single();
+
+      if (rest?.public_key && rest?.secret_key) {
+        publicKey   = publicKey   || rest.public_key;
+        accessToken = accessToken || rest.secret_key;
+      }
+    }
+  }
+
+  // 3) .env (fallback final)
+  if (!publicKey)   publicKey   = process.env.MP_PUBLIC_KEY   || '';
+  if (!accessToken) accessToken = process.env.MP_ACCESS_TOKEN || '';
+
+  return { restaurantId, publicKey, accessToken, mode, ...baseEnv() };
+}
+
+function buildWebhookUrl(keys) {
+  const { restaurantId, baseUrl, webhookUrl } = keys;
   const urlBase = (webhookUrl || `${baseUrl.replace(/\/+$/, '')}/webhooks/mp`).trim();
   return restaurantId ? `${urlBase}?restaurantId=${restaurantId}` : urlBase;
 }
 
-/* --- Public Key --- */
-router.get('/psp/mp/public-key', async (_req, res) => {
-  const { publicKey } = getKeys();
-  if (!publicKey) return res.status(500).json({ error: 'MP_PUBLIC_KEY no configurado' });
-  res.json({ publicKey });
+/* -------------------- Rutas -------------------- */
+
+/* --- Public Key para el Brick --- */
+router.get('/psp/mp/public-key', async (req, res) => {
+  try {
+    const { publicKey } = await getKeysAsync(req);
+    if (!publicKey) return res.status(500).json({ error: 'MP_PUBLIC_KEY no configurado' });
+    res.json({ publicKey });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-/* --- Preferencias (Wallet/CheckoutPro) --- */
+/* --- Preferencias (Checkout Pro / Wallet) --- */
 router.post('/psp/mp/preferences', async (req, res) => {
   try {
-    const { accessToken, frontendUrl } = getKeys();
+    const keys = await getKeysAsync(req);
+    const { accessToken, frontendUrl, restaurantId } = keys;
     if (!accessToken) return res.status(400).json({ error: 'MP_ACCESS_TOKEN no configurado' });
 
     const {
-      title,
-      unit_price,
-      currency_id = 'PEN',
-      quantity = 1,
-      buyerEmail,
-      metadata = {},
-      idempotencyKey,
+      title, unit_price, currency_id = 'PEN', quantity = 1,
+      buyerEmail, metadata = {}, idempotencyKey,
     } = req.body || {};
-    if (!title || unit_price == null) return res.status(400).json({ error: 'Faltan campos: title, unit_price' });
 
-    const restaurantId = Number(metadata?.restaurantId || req.query.restaurantId || 0);
+    if (!title || unit_price == null) {
+      return res.status(400).json({ error: 'Faltan campos: title, unit_price' });
+    }
+
     const mp = new MPConfig({ accessToken });
     const pref = new Preference(mp);
 
@@ -67,7 +120,7 @@ router.post('/psp/mp/preferences', async (req, res) => {
           pending: `${frontendUrl}/checkout/pending`,
         },
         auto_return: 'approved',
-        notification_url: buildWebhookUrl(restaurantId),
+        notification_url: buildWebhookUrl(keys),
         metadata: { ...metadata, restaurantId },
         external_reference: String(metadata?.pedidoId || ''),
       }
@@ -81,10 +134,11 @@ router.post('/psp/mp/preferences', async (req, res) => {
   }
 });
 
-/* --- Card Brick: handler extraído (idempotencia reforzada) --- */
+/* --- Card Brick --- */
 async function handleCardPayment(req, res) {
   try {
-    const { accessToken } = getKeys();
+    const keys = await getKeysAsync(req);
+    const { accessToken, restaurantId } = keys;
     if (!accessToken) return res.status(400).json({ error: 'MP_ACCESS_TOKEN no configurado' });
 
     const { amount, formData, description, metadata = {} } = req.body || {};
@@ -92,16 +146,13 @@ async function handleCardPayment(req, res) {
       return res.status(400).json({ error: 'Faltan amount o formData.token' });
     }
 
-    const intentId = metadata?.intentId;
+    const intentId = metadata?.intentId || req.body?.intentId || null;
     const pedidoId = metadata?.pedidoId;
-    const restaurantId = Number(metadata?.restaurantId || req.query.restaurantId || 0);
 
     const mp = new MPConfig({ accessToken });
     const payment = new Payment(mp);
 
-    const idemHeader =
-      req.get('X-Idempotency-Key') ||
-      String(intentId || pedidoId || Date.now());
+    const idemHeader = req.get('X-Idempotency-Key') || String(intentId || pedidoId || Date.now());
 
     const payload = {
       transaction_amount: Number(amount),
@@ -115,23 +166,16 @@ async function handleCardPayment(req, res) {
         identification: formData?.payer?.identification,
       },
       external_reference: String(pedidoId || intentId || ''),
-      metadata: { ...metadata, restaurantId },
-      notification_url: buildWebhookUrl(restaurantId),
+      metadata: { ...metadata, restaurantId, intentId },
+      notification_url: buildWebhookUrl(keys),
     };
 
     const resp = await payment.create({
       body: payload,
-      requestOptions: {
-        idempotencyKey: idemHeader,
-        headers: { 'X-Idempotency-Key': idemHeader },
-      },
+      requestOptions: { idempotencyKey: idemHeader, headers: { 'X-Idempotency-Key': idemHeader } },
     });
 
-    return res.json({
-      id: resp.id,
-      status: resp.status,
-      status_detail: resp.status_detail,
-    });
+    return res.json({ id: resp.id, status: resp.status, status_detail: resp.status_detail });
   } catch (err) {
     console.error('[/psp/mp/payments/card] error:', err?.message || err);
     const status = err?.status || err?.response?.status || 500;
@@ -139,32 +183,26 @@ async function handleCardPayment(req, res) {
     return res.status(status).json(data);
   }
 }
+router.post('/psp/mp/payments/card', ensureIntentActive, handleCardPayment);
+router.post('/psp/mp/card',         ensureIntentActive, handleCardPayment);
 
-// Registra ambos endpoints con el mismo handler
-router.post('/psp/mp/payments/card', handleCardPayment);
-router.post('/psp/mp/card', handleCardPayment);
-
-/* --- Yape (tokenizado) con alias opcional --- */
+/* --- Yape (tokenizado) --- */
 async function handleYapePayment(req, res) {
   try {
-    const { accessToken } = getKeys();
+    const keys = await getKeysAsync(req);
+    const { accessToken, restaurantId } = keys;
     if (!accessToken) return res.status(400).json({ error: 'MP_ACCESS_TOKEN no configurado' });
 
     const { token, amount, email, description, metadata = {} } = req.body || {};
-    if (!token || !amount) {
-      return res.status(400).json({ error: 'Falta token o amount' });
-    }
+    if (!token || !amount) return res.status(400).json({ error: 'Falta token o amount' });
 
     const intentId = metadata?.intentId;
     const pedidoId = metadata?.pedidoId;
-    const restaurantId = Number(metadata?.restaurantId || req.query.restaurantId || 0);
 
     const mp = new MPConfig({ accessToken });
     const payment = new Payment(mp);
 
-    const idemHeader =
-      req.get('X-Idempotency-Key') ||
-      String(intentId || pedidoId || Date.now());
+    const idemHeader = req.get('X-Idempotency-Key') || String(intentId || pedidoId || Date.now());
 
     const payload = {
       transaction_amount: Number(amount),
@@ -173,23 +211,16 @@ async function handleYapePayment(req, res) {
       token,
       payer: { email: (email || '').trim() || undefined },
       external_reference: String(pedidoId || intentId || ''),
-      metadata: { ...metadata, restaurantId },
-      notification_url: buildWebhookUrl(restaurantId),
+      metadata: { ...metadata, restaurantId, intentId },
+      notification_url: buildWebhookUrl(keys),
     };
 
     const resp = await payment.create({
       body: payload,
-      requestOptions: {
-        idempotencyKey: idemHeader,
-        headers: { 'X-Idempotency-Key': idemHeader },
-      },
+      requestOptions: { idempotencyKey: idemHeader, headers: { 'X-Idempotency-Key': idemHeader } },
     });
 
-    return res.json({
-      id: resp.id,
-      status: resp.status,
-      status_detail: resp.status_detail,
-    });
+    return res.json({ id: resp.id, status: resp.status, status_detail: resp.status_detail });
   } catch (err) {
     console.error('[/psp/mp/payments/yape] error:', err?.message || err);
     const status = err?.status || err?.response?.status || 500;
@@ -197,8 +228,7 @@ async function handleYapePayment(req, res) {
     return res.status(status).json(data);
   }
 }
-
-router.post('/psp/mp/payments/yape', handleYapePayment);
-router.post('/psp/mp/yape', handleYapePayment); // alias
+router.post('/psp/mp/payments/yape', ensureIntentActive, handleYapePayment);
+router.post('/psp/mp/yape',          ensureIntentActive, handleYapePayment);
 
 module.exports = router;

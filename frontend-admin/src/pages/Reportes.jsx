@@ -2,44 +2,88 @@
 import { useEffect, useMemo, useState } from "react";
 import ExportDialog from "../components/ExportDialog";
 import API from "../services/axiosInstance";
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+import {
+  BarChart2,
+  DollarSign,
+  ShoppingCart,
+  Percent,
+  FileDown,
+} from "lucide-react";
 
-/* ---------- utils ---------- */
+/* ---------- UTILS ---------- */
+const TZ = "America/Lima";
+const LIMA_OFFSET_HOURS = -5; // UTC -> Lima (sin DST)
+
 const fmtSoles = (n) =>
   `S/ ${Number(n ?? 0).toLocaleString("es-PE", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
 const fmtNum = (n) => Number(n ?? 0).toLocaleString("es-PE");
 
-/* Rango presets */
-function todayISO() { const d = new Date(); return d.toISOString().slice(0, 10); }
-function addDaysISO(iso, d) { const t = new Date(iso); t.setDate(t.getDate() + d); return t.toISOString().slice(0, 10); }
-function monthStartISO(iso) { const t = new Date(iso); t.setDate(1); return t.toISOString().slice(0,10); }
+function todayISO() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+function addDaysISO(iso, d) {
+  const t = new Date(iso);
+  t.setDate(t.getDate() + d);
+  return t.toISOString().slice(0, 10);
+}
+function monthStartISO(iso) {
+  const t = new Date(iso);
+  t.setDate(1);
+  return t.toISOString().slice(0, 10);
+}
+
+// Etiqueta de día SIEMPRE en Lima
+const fmtDayLima = (s) => {
+  const d = new Date(s);
+  return new Intl.DateTimeFormat("es-PE", {
+    timeZone: TZ,
+    day: "2-digit",
+    month: "2-digit",
+  }).format(d);
+};
+
+// Si el backend agrega por hora en UTC, mapea a hora local Lima
+const toLimaHour = (utcHour) => ((Number(utcHour) + 24 + LIMA_OFFSET_HOURS) % 24);
 
 const PRESETS = [
   { k: "today", label: "Hoy", get: () => { const t = todayISO(); return { from: t, to: t }; } },
   { k: "7", label: "Últimos 7 días", get: () => { const t = todayISO(); return { from: addDaysISO(t, -6), to: t }; } },
   { k: "30", label: "Últimos 30 días", get: () => { const t = todayISO(); return { from: addDaysISO(t, -29), to: t }; } },
-  { k: "mtd", label: "Mes actual", get: () => { const t = todayISO(); return { from: monthStartISO(t), to: t }; } },
+  { k: "mtd", label: "Este mes", get: () => { const t = todayISO(); return { from: monthStartISO(t), to: t }; } },
 ];
+const PRESET_DEFAULT_KEY = "7";
 
-/* ---------- page ---------- */
+/* ---------- PAGE ---------- */
 export default function Reportes() {
-  const def = PRESETS[1].get(); // últimos 7
+  const def = PRESETS.find((p) => p.k === PRESET_DEFAULT_KEY).get();
   const [from, setFrom] = useState(def.from);
   const [to, setTo] = useState(def.to);
-  const [busy, setBusy] = useState(false);
+  const [activePreset, setActivePreset] = useState(PRESET_DEFAULT_KEY);
+  const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
-
-  // datasets
-  const [resumen, setResumen] = useState({ total: 0, pedidos: 0, avg_ticket: 0, items: 0 });
-  const [diarias, setDiarias] = useState([]);      // [{day,total,pedidos}]
-  const [porHora, setPorHora] = useState([]);      // [{hour,total,pedidos}]
-  const [topItems, setTopItems] = useState([]);    // [{id,nombre,cantidad,total}]
-  const [pagos, setPagos] = useState([]);          // [{metodo,total,count}]
+  const [resumen, setResumen] = useState({});
+  const [diarias, setDiarias] = useState([]);
+  const [porHora, setPorHora] = useState([]);
+  const [topItems, setTopItems] = useState([]);
+  const [pagos, setPagos] = useState([]);
   const [showExport, setShowExport] = useState(false);
 
-  /* fetch */
   useEffect(() => {
     let alive = true;
     const ctrl = new AbortController();
@@ -49,7 +93,8 @@ export default function Reportes() {
         setBusy(true);
         setErr("");
 
-        const qs = { params: { from, to }, signal: ctrl.signal };
+        // 'to' exclusivo → enviamos to + 1 día
+        const qs = { params: { from, to: addDaysISO(to, 1) }, signal: ctrl.signal };
         const [r1, r2, r3, r4, r5] = await Promise.all([
           API.get("/reportes/resumen", qs),
           API.get("/reportes/ventas-diarias", qs),
@@ -65,263 +110,290 @@ export default function Reportes() {
         setTopItems(Array.isArray(r4.data) ? r4.data : []);
         setPagos(Array.isArray(r5.data) ? r5.data : []);
       } catch (e) {
-        if (!alive) return;
+        if (!alive || e.name === "CanceledError") return;
         setErr(e?.response?.data?.error || e?.message || "No se pudo cargar reportes");
       } finally {
         if (alive) setBusy(false);
       }
     })();
 
-    return () => { alive = false; ctrl.abort(); };
+    return () => {
+      alive = false;
+      ctrl.abort();
+    };
   }, [from, to]);
 
-  /* totales auxiliares */
-  const totalPorHora = useMemo(() => porHora.reduce((a, b) => a + Number(b.total || 0), 0), [porHora]);
-  const pagosTotal = useMemo(() => pagos.reduce((a,b)=>a+Number(b.total||0),0), [pagos]);
-
-  /* export helpers (solo para botones de tablas locales) */
-  const exportCSV = (rows, headers, name) => {
-    const csv = [headers.join(",")]
-      .concat(rows.map(r => headers.map(h => {
-        const v = r[h];
-        const s = v == null ? "" : String(v);
-        return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
-      }).join(",")))
-      .join("\n");
-    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `${name}.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
+  const pagosTotal = useMemo(
+    () => pagos.reduce((a, b) => a + Number(b.total || 0), 0),
+    [pagos]
+  );
 
   const applyPreset = (k) => {
-    const p = PRESETS.find(x => x.k === k);
+    const p = PRESETS.find((x) => x.k === k);
     if (!p) return;
     const r = p.get();
-    setFrom(r.from); setTo(r.to);
+    setFrom(r.from);
+    setTo(r.to);
+    setActivePreset(k);
   };
 
+  useEffect(() => {
+    const currentPreset = PRESETS.find((p) => p.k === activePreset);
+    if (currentPreset) {
+      const range = currentPreset.get();
+      if (range.from !== from || range.to !== to) {
+        setActivePreset(null);
+      }
+    }
+  }, [from, to, activePreset]);
+
   return (
-    <section className="space-y-4">
-      <div className="rounded-2xl bg-white p-4 shadow ring-1 ring-black/5">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="mr-4">
-            <h1 className="text-2xl font-semibold">Reportes</h1>
-            <p className="text-sm text-neutral-600">Ventas, tendencias y productos más vendidos.</p>
-          </div>
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="absolute inset-0 -z-10 bg-zinc-50" />
 
-          {/* filtros */}
-          <div className="ml-auto grid grid-cols-2 gap-2 sm:flex sm:items-end">
-            <div>
-              <label htmlFor="rep-from" className="block text-xs text-neutral-600">Desde</label>
-              <input id="rep-from" name="from" type="date"
-                     className="rounded-lg border px-3 py-2 text-sm"
-                     value={from} onChange={e=>setFrom(e.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="rep-to" className="block text-xs text-neutral-600">Hasta</label>
-              <input id="rep-to" name="to" type="date"
-                     className="rounded-lg border px-3 py-2 text-sm"
-                     value={to} onChange={e=>setTo(e.target.value)} />
-            </div>
+      <Header
+        from={from}
+        to={to}
+        setFrom={setFrom}
+        setTo={setTo}
+        presets={PRESETS}
+        activePreset={activePreset}
+        onPresetClick={applyPreset}
+        onExportClick={() => setShowExport(true)}
+      />
 
-            <div className="flex gap-1">
-              {PRESETS.map(p => (
-                <button key={p.k} type="button"
-                        className="rounded-lg border px-3 py-2 text-sm hover:bg-neutral-50"
-                        onClick={() => applyPreset(p.k)}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {/* NUEVO: botón para exportaciones del backend */}
-            <button
-              type="button"
-              className="rounded-lg border px-3 py-2 text-sm hover:bg-neutral-50"
-              onClick={() => setShowExport(true)}
-              title="Exportar datos (CSV)"
-            >
-              Exportar datos…
-            </button>
-          </div>
+      {err && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          {err}
         </div>
+      )}
 
-        {/* estado */}
-        <div className="min-h-[20px]">
-          {err && <div className="mt-3 rounded border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">{err}</div>}
-        </div>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={DollarSign} title="Ventas Totales" value={fmtSoles(resumen.total)} loading={busy} />
+        <StatCard icon={ShoppingCart} title="Total Pedidos" value={fmtNum(resumen.pedidos)} loading={busy} />
+        <StatCard icon={Percent} title="Ticket Promedio" value={fmtSoles(resumen.avg_ticket)} loading={busy} />
+        <StatCard icon={BarChart2} title="Items Vendidos" value={fmtNum(resumen.items)} loading={busy} />
       </div>
 
-      {/* KPIs */}
-      <div className="grid gap-3 md:grid-cols-4" aria-busy={busy ? "true":"false"}>
-        <Kpi title="Ventas" value={fmtSoles(resumen.total)} sub={diarias.length ? `${diarias.length} días` : ""}/>
-        <Kpi title="Pedidos" value={fmtNum(resumen.pedidos)} sub={`Ticket prom.: ${fmtSoles(resumen.avg_ticket)}`}/>
-        <Kpi title="Ticket promedio" value={fmtSoles(resumen.avg_ticket)} sub="por pedido"/>
-        <Kpi title="Ítems vendidos" value={fmtNum(resumen.items)} sub="en el período"/>
+      <div className="grid gap-4 lg:grid-cols-5">
+        <ReportCard title="Ventas Diarias" className="lg:col-span-3" loading={busy}>
+          <DailySalesChart data={diarias} />
+        </ReportCard>
+        <ReportCard title="Ventas por Hora" className="lg:col-span-2" loading={busy}>
+          <HourlySalesChart data={porHora} />
+        </ReportCard>
       </div>
 
-      {/* curva + por hora */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Ventas diarias">
-          <TrendChart data={diarias.map(d => ({ x: d.day, y: Number(d.total||0) }))} />
-          <div className="mt-3 flex justify-between text-xs text-neutral-600">
-            <span>{diarias[0]?.day ?? ""}</span>
-            <span>{diarias[diarias.length-1]?.day ?? ""}</span>
-          </div>
-          <div className="mt-3">
-            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-neutral-50"
-                    onClick={() => exportCSV(diarias, ["day","total","pedidos"], "ventas-diarias")}>
-              Exportar CSV
-            </button>
-          </div>
-        </Card>
-
-        <Card title="Ventas por hora (0–23)">
-          <HoursBars data={porHora.map(h => ({ hour: h.hour, total: Number(h.total||0) }))}/>
-          <p className="mt-3 text-sm text-neutral-600">
-            Total en gráfico: <strong>{fmtSoles(totalPorHora)}</strong>
-          </p>
-        </Card>
-
-        <Card title="Métodos de pago">
-          {pagos.length === 0 && <Empty>Sin datos</Empty>}
-          <ul className="space-y-2">
+      <div className="grid gap-4 lg:grid-cols-5">
+        <ReportCard title="Métodos de Pago" className="lg:col-span-2" loading={busy}>
+          <ul className="space-y-3">
             {pagos.map((p) => {
-              const pct = pagosTotal > 0 ? (100 * Number(p.total||0) / pagosTotal) : 0;
+              const pct = pagosTotal > 0 ? (100 * Number(p.total || 0)) / pagosTotal : 0;
               return (
-                <li key={p.metodo} className="rounded border p-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="font-medium">{p.metodo || "—"}</span>
-                    <span className="tabular-nums">{fmtSoles(p.total)} · {fmtNum(p.count||0)} pedidos</span>
+                <li key={p.metodo}>
+                  <div className="mb-1 flex justify-between text-sm">
+                    <span className="font-medium text-zinc-800">{p.metodo || "—"}</span>
+                    <span className="tabular-nums font-semibold text-zinc-800">{fmtSoles(p.total)}</span>
                   </div>
-                  <div className="mt-1 h-2 rounded bg-neutral-100">
-                    <div className="h-2 rounded bg-emerald-500" style={{ width: `${pct}%` }}/>
+                  <div className="h-2 rounded bg-zinc-200">
+                    <div className="h-2 rounded bg-green-500" style={{ width: `${pct}%` }} />
                   </div>
                 </li>
               );
             })}
+            {pagos.length === 0 && !busy && <EmptyState>Sin datos de pago</EmptyState>}
           </ul>
-        </Card>
+        </ReportCard>
+
+        <ReportCard title="Top 10 Productos Más Vendidos" className="lg:col-span-3" loading={busy}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="font-medium text-zinc-500">
+                <tr className="text-left">
+                  <th className="p-2">Producto</th>
+                  <th className="p-2 text-right">Cantidad</th>
+                  <th className="p-2 text-right">Ventas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200">
+                {topItems.map((r) => (
+                  <tr key={r.id}>
+                    <td className="p-2 font-medium text-zinc-800">{r.nombre}</td>
+                    <td className="p-2 text-right font-mono">{fmtNum(r.cantidad)}</td>
+                    <td className="p-2 text-right font-mono font-semibold">{fmtSoles(r.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {topItems.length === 0 && !busy && <EmptyState>Sin datos de productos</EmptyState>}
+          </div>
+        </ReportCard>
       </div>
 
-      {/* top productos */}
-      <Card title="Top productos">
-        {topItems.length === 0 && <Empty>Sin datos</Empty>}
-        {topItems.length > 0 && (
-          <>
-            <div className="overflow-auto">
-              <table className="min-w-[640px] w-full text-sm">
-                <thead>
-                  <tr className="text-left text-neutral-500">
-                    <th className="py-2">Producto</th>
-                    <th className="text-right">Cantidad</th>
-                    <th className="text-right">Ventas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topItems.map((r) => (
-                    <tr key={r.id} className="border-t">
-                      <td className="py-2">{r.nombre}</td>
-                      <td className="text-right">{fmtNum(r.cantidad)}</td>
-                      <td className="text-right">{fmtSoles(r.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3">
-              <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-neutral-50"
-                      onClick={() => exportCSV(topItems, ["id","nombre","cantidad","total"], "top-items")}>
-                Exportar CSV
-              </button>
-            </div>
-          </>
-        )}
-      </Card>
-
-      {/* Dialogo de exportación del BACKEND */}
-      <ExportDialog
-        open={showExport}
-        onClose={() => setShowExport(false)}
-        from={from}
-        to={to}
-        // restaurantId={MI_RESTAURANT_ID} // pásalo solo si tu backend no lo saca del JWT
-      />
-    </section>
-  );
-}
-
-/* ---------- UI bits ---------- */
-function Card({ title, children }) {
-  return (
-    <div className="rounded-2xl bg-white p-4 shadow ring-1 ring-black/5">
-      {title ? <h3 className="mb-2 text-lg font-semibold">{title}</h3> : null}
-      {children}
-    </div>
-  );
-}
-function Empty({ children }) {
-  return <div className="rounded border border-dashed p-6 text-center text-neutral-500">{children}</div>;
-}
-function Kpi({ title, value, sub }) {
-  return (
-    <div className="min-h-[96px] rounded-2xl bg-white p-4 shadow ring-1 ring-black/5">
-      <div className="text-sm text-neutral-600">{title}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-neutral-500">{sub}</div>}
+      <ExportDialog open={showExport} onClose={() => setShowExport(false)} from={from} to={to} />
     </div>
   );
 }
 
-/* ---------- charts sin librerías ---------- */
-function TrendChart({ data }) {
-  const w = 640, h = 180, pad = 10;
-  const arr = Array.isArray(data) ? data : [];
-  const ys = arr.map(p => p.y);
-  const min = Math.min(0, ...ys), max = Math.max(1, ...ys);
-  const nx = arr.length > 1 ? (w - pad*2) / (arr.length - 1) : 0;
+/* ---------- UI BITS ---------- */
 
-  const points = arr.map((p, i) => {
-    const x = pad + i*nx;
-    const y = pad + (h - pad*2) * (1 - ((p.y - min) / (max - min || 1)));
-    return [x,y];
-  });
-
-  const path = points.map((p,i)=> (i? "L":"M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-  const area = path
-    ? path + ` L ${pad + (arr.length-1)*nx} ${h-pad} L ${pad} ${h-pad} Z`
-    : "";
-
+function Header({ from, to, setFrom, setTo, presets, activePreset, onPresetClick, onExportClick }) {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-      <rect x="0" y="0" width={w} height={h} fill="white" rx="8" />
-      <path d={area} fill="rgba(16,185,129,0.12)" />
-      <path d={path} fill="none" stroke="rgb(16,185,129)" strokeWidth="2.5" />
-      {points.map((p,i)=>(<circle key={i} cx={p[0]} cy={p[1]} r="2.5" fill="rgb(16,185,129)" />))}
-    </svg>
+    <div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Reportes y Analítica</h1>
+          <p className="text-zinc-500">Analiza el rendimiento de tu negocio en rangos de fechas.</p>
+        </div>
+        <button
+          onClick={onExportClick}
+          className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+        >
+          <FileDown size={16} /> Exportar Reporte Completo
+        </button>
+      </div>
+
+      <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-white/70 p-3 shadow-lg shadow-zinc-200/50 backdrop-blur-lg md:flex-row">
+        <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1">
+          {presets.map((p) => (
+            <button
+              key={p.k}
+              onClick={() => onPresetClick(p.k)}
+              className={`rounded-md px-3 py-1 text-sm font-semibold transition-colors ${
+                activePreset === p.k ? "bg-white text-green-700 shadow-sm" : "text-zinc-600 hover:bg-white/50"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-grow" />
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-zinc-700">Desde:</label>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm transition-colors focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-zinc-700">Hasta:</label>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm transition-colors focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 
-function HoursBars({ data }) {
-  const arr = Array.from({length:24}, (_,h)=> {
-    const f = data.find(d=>Number(d.hour)===h);
-    return { hour:h, total:Number(f?.total||0) };
-  });
-  const max = Math.max(1, ...arr.map(a=>a.total));
+function ReportCard({ title, children, className = "", loading }) {
   return (
-    <div className="grid grid-cols-12 gap-2">
-      {arr.map(({hour,total})=>{
-        const pct = (100 * total / max);
-        return (
-          <div key={hour} className="flex flex-col items-center">
-            <div className="flex h-32 w-3 items-end rounded bg-neutral-100">
-              <div className="w-3 rounded bg-emerald-500" style={{ height: `${pct}%` }} />
-            </div>
-            <div className="mt-1 text-[10px] text-neutral-600">{hour}</div>
-          </div>
-        );
-      })}
+    <div className={`rounded-2xl bg-white/70 p-5 shadow-lg shadow-zinc-200/50 backdrop-blur-lg ${className}`}>
+      {title && <h3 className="mb-4 text-lg font-semibold text-zinc-800">{title}</h3>}
+      {loading ? <div className="h-48 animate-pulse rounded-md bg-zinc-200/80" /> : children}
+    </div>
+  );
+}
+
+function EmptyState({ children }) {
+  return <div className="py-10 text-center text-sm text-zinc-500">{children}</div>;
+}
+
+function StatCard({ icon: Icon, title, value, loading }) {
+  return (
+    <div className="rounded-2xl bg-white/70 p-5 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
+      <div className="flex items-center gap-2 text-sm font-medium text-zinc-600">
+        <Icon size={16} /> {title}
+      </div>
+      {loading ? (
+        <div className="mt-2 h-8 w-3/4 animate-pulse rounded-md bg-zinc-200/80" />
+      ) : (
+        <div className="mt-1 tabular-nums text-3xl font-bold text-zinc-900">{value}</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- CHARTS ---------- */
+const chartMargin = { top: 5, right: 10, left: -25, bottom: 0 };
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="rounded-lg bg-white/80 p-2 shadow-lg backdrop-blur-sm ring-1 ring-zinc-200">
+        <p className="font-semibold">{label}</p>
+        <p className="text-green-600">{`Ventas: ${fmtSoles(payload[0].value)}`}</p>
+      </div>
+    );
+  }
+  return null;
+};
+
+function DailySalesChart({ data }) {
+  const chartData = data.map((d) => ({
+    name: fmtDayLima(d.day), // "dd/mm"
+    total: Number(d.total || 0),
+  }));
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer>
+        <AreaChart data={chartData} margin={chartMargin}>
+          <defs>
+            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" vertical={false} />
+          <XAxis dataKey="name" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} />
+          <YAxis
+            stroke="#71717a"
+            fontSize={12}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v) => `S/${v / 1000}k`}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Area type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorTotal)" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function HourlySalesChart({ data }) {
+  // Mapea hora UTC -> hora Lima y compone las 24 horas
+  const mapped = (Array.isArray(data) ? data : []).map((d) => ({
+    hourLocal: toLimaHour(d.hour),
+    total: Number(d.total || 0),
+  }));
+  const chartData = Array.from({ length: 24 }, (_, h) => {
+    const f = mapped.find((x) => x.hourLocal === h);
+    return { name: `${h}h`, total: Number(f?.total || 0) };
+  });
+
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer>
+        <BarChart data={chartData} margin={chartMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" vertical={false} />
+          <XAxis dataKey="name" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} interval={3} />
+          <YAxis
+            stroke="#71717a"
+            fontSize={12}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v) => `S/${v / 1000}k`}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(228, 228, 231, 0.5)" }} />
+          <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

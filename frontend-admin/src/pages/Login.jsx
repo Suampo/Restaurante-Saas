@@ -2,6 +2,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthProvider";
+import { setAuthIdentity } from "../services/cashApi";
+import { CookingPot, Mail, Lock, Eye, EyeOff, Loader2, AlertTriangle, Keyboard } from "lucide-react";
+
+const parseJwt = (t) => { try { return JSON.parse(atob(String(t).split(".")[1])); } catch { return {}; } };
+
+function pickClaims(token, fallbackEmail) {
+  const p = token ? parseJwt(token) : {};
+  const role = String(p.rol || p.app_role || p.user_role || "").toLowerCase() || "admin";
+  const rid  = p.restaurant_id ?? p.restaurantId ?? null;
+  const uid  = p.sub || p.user_id || p.uid || null;
+  const mail = p.email || fallbackEmail;
+  return { role, rid, uid, mail };
+}
 
 export default function Login() {
   const loc = useLocation();
@@ -17,7 +30,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // evita dobles navegaciones
   const navigated = useRef(false);
   const safeNavigate = (to) => {
     if (navigated.current) return;
@@ -25,26 +37,20 @@ export default function Login() {
     navigate(to, { replace: true });
   };
 
-  // Ejecuta la validación una sola vez
   const ran = useRef(false);
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-
     const ctrl = new AbortController();
     (async () => {
       try {
-        // Pide refresh mediante el contexto (esto guarda dbToken si es válido)
+        // Si no hay sesión aún, esto puede devolver 401; simplemente lo ignoramos
         const ok = await refreshDbToken({ signal: ctrl.signal });
-        console.log("[LOGIN] refreshDbToken ok?", ok);
-
         if (ok) {
           const to = loc.state?.from?.pathname || "/dashboard";
           safeNavigate(to);
           return;
         }
-
-        // Sin sesión: muestra el formulario
         sessionStorage.removeItem("dbToken");
       } catch {
         sessionStorage.removeItem("dbToken");
@@ -52,9 +58,9 @@ export default function Login() {
         setChecking(false);
       }
     })();
-
     return () => ctrl.abort();
-  }, [loc.state, refreshDbToken]); // navigate NO va en deps para evitar loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.state, refreshDbToken]);
 
   const emailOk = email.trim() !== "";
   const passOk = password !== "";
@@ -64,23 +70,42 @@ export default function Login() {
     e.preventDefault();
     if (!canSubmit) return;
     setMsg("");
-
     try {
       setLoading(true);
-      console.log("[LOGIN] submit:", { email: email.trim() });
 
-      // 1) Tu login: setea dbToken en el contexto/sessionStorage
-      const out = await login(email.trim(), password);
+      // Login contra tu backend-pedidos
+      await login(email.trim(), password);
 
-      
-
-      // 3) “Recordarme”
       if (remember) localStorage.setItem("persist", "1");
       else localStorage.removeItem("persist");
 
-      // 4) Redirige (una sola vez)
-      const to = loc.state?.from?.pathname || "/dashboard";
-      safeNavigate(to);
+      // Tomamos el token emitido por :4000 (dbToken) o equivalentes
+      const dbToken =
+        sessionStorage.getItem("dbToken") ||
+        localStorage.getItem("dbToken") ||
+        sessionStorage.getItem("access_token") ||
+        localStorage.getItem("access_token");
+
+      // ---- FIX CLAVE: duplicar para que el interceptor de cashApi lo encuentre ----
+      if (dbToken) {
+        localStorage.setItem("access_token", dbToken);
+        localStorage.setItem("token", dbToken);
+      }
+
+      // Identidad para la UI (no se envía como header)
+      const { role, rid, uid, mail } = pickClaims(dbToken, email);
+      setAuthIdentity({ email: mail, id: uid, role, restaurantId: rid });
+
+      // Opcional: precalienta CSRF de :5000 (evita 403 la primera vez)
+      try {
+        await fetch("http://localhost:5000/api/csrf", { credentials: "include" });
+      } catch {}
+
+      const next = role === "staff"
+        ? "/mozo/cobro-efectivo"
+        : (loc.state?.from?.pathname || "/dashboard");
+
+      safeNavigate(next);
     } catch (err) {
       console.error("[LOGIN] error:", err);
       setMsg(err?.message || "Credenciales inválidas");
@@ -92,97 +117,87 @@ export default function Login() {
   if (checking) {
     return (
       <div className="grid min-h-screen place-items-center bg-white">
+        <Loader2 className="h-8 w-8 animate-spin text-green-600" />
         <span className="sr-only">Verificando sesión…</span>
       </div>
     );
   }
 
   return (
-    <div className="relative isolate flex min-h-screen items-center justify-center overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-neutral-50 via-white to-neutral-200" />
-      <div className="pointer-events-none absolute -top-32 -left-32 h-[450px] w-[450px] rounded-full bg-emerald-400/25 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-emerald-400/25 blur-3xl" />
+    <div className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-zinc-50">
+      <div className="pointer-events-none absolute -top-32 -left-32 h-[450px] w-[450px] rounded-full bg-green-400/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-green-400/20 blur-3xl" />
 
-      <form onSubmit={handleLogin} className="relative z-10 w-full max-w-md rounded-3xl bg-white/90 p-6 shadow-xl ring-1 ring-black/5 backdrop-blur" aria-busy={loading ? "true" : "false"}>
-        <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-700 text-white shadow-lg">
-          <span className="text-lg font-bold">MG</span>
+      <form onSubmit={handleLogin} className="relative z-10 w-full max-w-md rounded-3xl bg-white/80 p-6 shadow-xl ring-1 ring-black/5 backdrop-blur-md" aria-busy={loading}>
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-green-600 text-white shadow-lg shadow-green-500/20">
+          <CookingPot size={32} />
         </div>
 
-        <h1 className="text-center text-2xl font-bold tracking-tight">Mikhunapp — Panel Admin</h1>
-        <p className="mt-1 text-center text-sm text-neutral-600">Gestiona tu menú, combos y pedidos en un solo lugar.</p>
+        <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">MikhunApp — Panel</h1>
+        <p className="mt-1 text-center text-sm text-zinc-600">Gestiona tu menú, combos y pedidos en un solo lugar.</p>
 
         {msg && (
-          <div id="login-error" role="alert" aria-live="polite" className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">
-            {msg}
+          <div id="login-error" role="alert" aria-live="polite" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{msg}</span>
           </div>
         )}
 
-        <label htmlFor="email" className="mt-6 block text-sm font-medium text-neutral-900">Email</label>
-        <input
-          id="email"
-          type="email"
-          autoCapitalize="none"
-          spellCheck={false}
-          autoComplete="username"
-          required
-          autoFocus
-          className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500"
-          placeholder="admin@demo.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          aria-invalid={!emailOk}
-          aria-describedby={msg ? "login-error" : undefined}
-        />
+        <div className="mt-6 space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-zinc-700">Email</label>
+            <div className="relative mt-1">
+              <Mail size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"/>
+              <input id="email" type="email" autoComplete="username" required autoFocus
+                className="w-full rounded-xl border border-zinc-300 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                placeholder="tu@email.com"
+                value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          </div>
 
-        <label htmlFor="password" className="mt-4 block text-sm font-medium text-neutral-900">Contraseña</label>
-        <div className="relative mt-1">
-          <input
-            id="password"
-            type={showPass ? "text" : "password"}
-            autoComplete="current-password"
-            required
-            className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 pr-12 text-sm outline-none transition focus:border-emerald-500"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyUp={(e) => setCapsOn(e.getModifierState && e.getModifierState("CapsLock"))}
-            aria-invalid={!passOk}
-            aria-describedby={`${capsOn ? "caps-hint " : ""}${msg ? "login-error" : ""}`.trim() || undefined}
-          />
-          <button
-            type="button"
-            className="absolute inset-y-0 right-2 my-auto rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100"
-            onClick={() => setShowPass((v) => !v)}
-            aria-pressed={showPass ? "true" : "false"}
-            aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
-            tabIndex={-1}
-          >
-            {showPass ? "Ocultar" : "Ver"}
-          </button>
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-zinc-700">Contraseña</label>
+            <div className="relative mt-1">
+              <Lock size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"/>
+              <input id="password" type={showPass ? "text" : "password"} autoComplete="current-password" required
+                className="w-full rounded-xl border border-zinc-300 bg-white py-2.5 pl-10 pr-12 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                placeholder="••••••••"
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                onKeyUp={(e) => setCapsOn(e.getModifierState && e.getModifierState("CapsLock"))} />
+              <button type="button" onClick={() => setShowPass((v) => !v)}
+                className="absolute inset-y-0 right-0 my-auto flex items-center rounded-r-xl px-3 text-zinc-500 hover:text-zinc-800"
+                title={showPass ? "Ocultar contraseña" : "Mostrar contraseña"} tabIndex={-1}>
+                {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {capsOn &&
+              <div id="caps-hint" className="mt-1.5 text-xs text-amber-700 flex items-center gap-1.5">
+                <Keyboard size={14} /> Bloq Mayús activado
+              </div>
+            }
+          </div>
         </div>
-        {capsOn && <div id="caps-hint" className="mt-1 text-xs text-amber-700">Bloq Mayús activado</div>}
 
-        <label className="mt-3 inline-flex select-none items-center gap-2 text-sm text-neutral-700">
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          Recordarme
-        </label>
+        <div className="mt-4 flex items-center justify-between">
+          <label className="inline-flex select-none items-center gap-2 text-sm text-zinc-700">
+            <input type="checkbox"
+              className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
+              checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            Recordarme
+          </label>
+        </div>
 
         <button
           type="submit"
           disabled={!canSubmit}
-          onClick={() => console.log("[LOGIN] button clicked")}
-          className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700 active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-80"
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-green-500/20 transition hover:bg-green-700 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {loading ? "Entrando…" : "Entrar"}
+          {loading && <Loader2 className="h-5 w-5 animate-spin" />}
+          {loading ? "Verificando..." : "Entrar"}
         </button>
 
-        <p className="mt-5 text-center text-xs text-neutral-500">
-          © {new Date().getFullYear()} Mikhunapp — Panel
+        <p className="mt-6 text-center text-xs text-zinc-500">
+          © {new Date().getFullYear()} MikhunApp — Panel
         </p>
       </form>
     </div>

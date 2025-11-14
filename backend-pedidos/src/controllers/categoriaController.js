@@ -1,10 +1,8 @@
-// src/controllers/categoriaController.js
 import { pool } from "../config/db.js";
 import multer from "multer";
-import sharp from "sharp";
-import { supabase, SUPABASE_BUCKET } from "../config/supabase.js";
+import { supabase } from "../config/supabase.js";
 
-// GET /api/categorias
+/* ===================== LISTAR ===================== */
 export const listCategorias = async (req, res) => {
   try {
     const restaurantId = Number(req.user?.restaurantId ?? req.query.restaurantId);
@@ -24,7 +22,7 @@ export const listCategorias = async (req, res) => {
   }
 };
 
-// POST /api/categorias
+/* ===================== CREAR ===================== */
 export const createCategoria = async (req, res) => {
   try {
     const restaurantId = Number(req.body.restaurantId) || Number(req.user?.restaurantId);
@@ -44,18 +42,19 @@ export const createCategoria = async (req, res) => {
   }
 };
 
-// PUT /api/categorias/:id
+/* ===================== ACTUALIZAR ===================== */
 export const updateCategoria = async (req, res) => {
   try {
+    const restaurantId = Number(req.user?.restaurantId);
     const { id } = req.params;
-    const nombre = req.body.nombre?.trim() ?? null;
+    const nombre = req.body?.nombre?.trim() ?? null;
 
     const { rows } = await pool.query(
       `UPDATE categorias
-          SET nombre = COALESCE($2, nombre)
-        WHERE id = $1
+          SET nombre = COALESCE($3, nombre)
+        WHERE id = $1 AND restaurant_id = $2
         RETURNING id, nombre, cover_url`,
-      [id, nombre]
+      [Number(id), restaurantId, nombre]
     );
 
     if (!rows.length) return res.status(404).json({ error: "No encontrada" });
@@ -66,27 +65,132 @@ export const updateCategoria = async (req, res) => {
   }
 };
 
-// DELETE /api/categorias/:id
+/* ===================== BORRAR (con ?force=1) ===================== */
+// BORRAR  — con ?force=1 seguro para historiales de pedidos
 export const deleteCategoria = async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { id } = req.params;
-    await pool.query(`DELETE FROM categorias WHERE id = $1`, [id]);
-    res.sendStatus(204);
+    const restaurantId = Number(req.user?.restaurantId ?? req.query.restaurantId);
+    const id = Number(req.params.id);
+    const force =
+      String(req.query.force ?? req.body?.force ?? "0") === "1" ||
+      String(req.query.force ?? "").toLowerCase() === "true";
+
+    if (!restaurantId || !id) return res.status(400).json({ error: "Datos inválidos" });
+
+    // Existe y pertenece
+    const exists = await client.query(
+      `SELECT 1 FROM categorias WHERE id=$1 AND restaurant_id=$2`,
+      [id, restaurantId]
+    );
+    if (!exists.rowCount) return res.status(404).json({ error: "No encontrada" });
+
+    // Uso en combos y platos (para el 409)
+    const { rows: rCg } = await client.query(
+      `SELECT COUNT(*)::int AS n
+         FROM combo_grupos cg
+         JOIN combos co ON co.id = cg.combo_id
+        WHERE cg.categoria_id = $1 AND co.restaurant_id = $2`,
+      [id, restaurantId]
+    );
+    const inCombos = rCg[0]?.n ?? 0;
+
+    const { rows: rMi } = await client.query(
+      `SELECT COUNT(*)::int AS n
+         FROM menu_items
+        WHERE categoria_id = $1 AND restaurant_id = $2`,
+      [id, restaurantId]
+    );
+    const inMenuItems = rMi[0]?.n ?? 0;
+
+    if (!force && (inCombos > 0 || inMenuItems > 0)) {
+      return res.status(409).json({
+        error: "CATEGORY_IN_USE",
+        message: "La categoría está en uso por el menú/combos.",
+        detail: { categoryId: id, inCombos, inMenuItems },
+      });
+    }
+
+    await client.query("BEGIN");
+
+    // 1) Platos -> sin categoría
+    const updItems = await client.query(
+      `UPDATE menu_items
+          SET categoria_id = NULL
+        WHERE restaurant_id = $2 AND categoria_id = $1`,
+      [id, restaurantId]
+    );
+
+    // 2) Grupos de combos que apuntan a esta categoría (del mismo restaurant)
+    //    - Si el grupo tiene pedidos históricos -> NO borrar: solo desvincular (categoria_id=NULL)
+    //    - Si NO tiene pedidos -> borrar
+    const { rows: grp } = await client.query(
+      `
+      SELECT cg.id,
+             EXISTS (
+               SELECT 1
+                 FROM pedido_detalle_combo_items i
+                WHERE i.combo_grupo_id = cg.id
+                LIMIT 1
+             ) AS has_orders
+        FROM combo_grupos cg
+        JOIN combos co ON co.id = cg.combo_id
+       WHERE cg.categoria_id = $1
+         AND co.restaurant_id = $2
+      `,
+      [id, restaurantId]
+    );
+
+    const idsHasOrders = grp.filter(g => g.has_orders).map(g => g.id);
+    const idsNoOrders  = grp.filter(g => !g.has_orders).map(g => g.id);
+
+    if (idsHasOrders.length) {
+      // desvincular (requiere que combo_grupos.categoria_id acepte NULL)
+      await client.query(
+        `UPDATE combo_grupos
+            SET categoria_id = NULL
+          WHERE id = ANY($1::int[])`,
+        [idsHasOrders]
+      );
+    }
+
+    if (idsNoOrders.length) {
+      await client.query(
+        `DELETE FROM combo_grupos
+          WHERE id = ANY($1::int[])`,
+        [idsNoOrders]
+      );
+    }
+
+    // 3) Eliminar la categoría
+    await client.query(
+      `DELETE FROM categorias WHERE id=$1 AND restaurant_id=$2`,
+      [id, restaurantId]
+    );
+
+    await client.query("COMMIT");
+    res.json({
+      ok: true,
+      deletedCategoryId: id,
+      clearedMenuItems: updItems.rowCount,
+      detachedComboGroups: idsHasOrders.length,
+      removedComboGroups: idsNoOrders.length,
+    });
   } catch (e) {
-    console.error("❌ deleteCategoria:", e);
+    await client.query("ROLLBACK");
+    console.error("❌ deleteCategoria(force):", e.stack || e.message);
     res.status(500).json({ error: "Error eliminando categoría" });
+  } finally {
+    client.release();
   }
 };
 
-// =============== UPLOAD COVER ===============
-
-// Multer en memoria (2MB máx; ajusta si quieres)
+/* ===================== UPLOAD COVER ===================== */
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
 });
 
-// PUT /api/categorias/:id/cover (campo: image)
 export async function updateCategoriaCover(req, res) {
   try {
     const restaurantId = req.user?.restaurantId || req.tenantId;
@@ -98,7 +202,7 @@ export async function updateCategoriaCover(req, res) {
     const path = `rest-${restaurantId}/categories/${id}-${Date.now()}.${ext}`;
 
     const { data, error } = await supabase
-      .storage.from("menu-images") // usa tu bucket
+      .storage.from("menu-images")
       .upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
 
     if (error) throw error;
@@ -107,7 +211,8 @@ export async function updateCategoriaCover(req, res) {
     const cover_url = pub.publicUrl;
 
     await pool.query(
-      `UPDATE categorias SET cover_url=$1 WHERE id=$2 AND restaurant_id=$3`,
+      `UPDATE categorias SET cover_url=$1
+        WHERE id=$2 AND restaurant_id=$3`,
       [cover_url, id, restaurantId]
     );
 

@@ -236,8 +236,8 @@ export async function chargePublicToken(req, res) {
     const r  = await getRestaurantKeysById(restaurantId);
     const md = await buildPublicMetadata(req);
     if (!md.table_code) {
-      return res.status(400).json({ error: "Falta metadata.table_code", detail: "Envía table_code o mesaId/order_id" });
-    }
+     md.table_code = process.env.PUBLIC_DEFAULT_TABLE_CODE || "ONLINE";
+   }
 
     const charge = await createCulqiCharge({
       amount,

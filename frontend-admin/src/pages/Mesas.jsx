@@ -2,6 +2,7 @@
 import useMesas from "../hooks/useMesas.js";
 import MesasHeader from "../components/MesasHeader";
 import MesaCard from "../components/MesaCard";
+import TakeawayCard from "../components/TakeawayCard";
 
 export default function Mesas() {
   const {
@@ -10,8 +11,13 @@ export default function Mesas() {
     qrData, generarQR, copiarQR,
   } = useMesas();
 
+  // Ocultamos la mesa LLEVAR del grid normal (tiene su tarjeta especial arriba)
+  const mesasNormales = (filtered || []).filter(
+    (m) => String(m?.codigo || "").toUpperCase() !== "LLEVAR"
+  );
+
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl space-y-5">
       <MesasHeader
         onAdd={addMesa}
         adding={adding}
@@ -19,8 +25,10 @@ export default function Mesas() {
         setQuery={setQuery}
       />
 
+      {/* QR especial para pedidos para llevar */}
+      <TakeawayCard />
+
       {loading ? (
-        // Skeletons
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -30,7 +38,7 @@ export default function Mesas() {
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : mesasNormales.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="text-slate-600">
             No hay mesas. Crea una con el formulario de arriba.
@@ -38,7 +46,7 @@ export default function Mesas() {
         </div>
       ) : (
         <div className="grid auto-rows-min grid-cols-1 items-start gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {filtered.map((m) => (
+          {mesasNormales.map((m) => (
             <MesaCard
               key={m.id}
               mesa={m}

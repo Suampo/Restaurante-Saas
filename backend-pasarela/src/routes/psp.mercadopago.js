@@ -47,29 +47,70 @@ async function getMPForRestaurant(restaurantId) {
   return new MercadoPagoConfig({ accessToken });
 }
 
+/* ===== Helpers extra para calidad de integración ===== */
+function splitName(full = "") {
+  const parts = String(full).trim().split(/\s+/);
+  if (!parts.length) return { first_name: "", last_name: "" };
+  if (parts.length === 1) return { first_name: parts[0], last_name: "" };
+  return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
+}
+
+// Tomamos el Device ID enviado por el frontend (MP.js v2)
+// y se lo pasamos a MP vía header recomendado.
+function mpHeadersFromReq(req) {
+  const deviceId =
+    req.get("X-Device-Session-Id") ||
+    req.get("X-Device-Id") ||
+    req.get("X-meli-session-id") ||
+    null;
+  return deviceId ? { "X-meli-session-id": deviceId } : undefined;
+}
+
+const MP_STATEMENT_DESCRIPTOR =
+  (process.env.MP_STATEMENT_DESCRIPTOR || "").trim() || undefined;
+
+const MP_BINARY_MODE =
+  /^(1|true)$/i.test(process.env.MP_BINARY_MODE || "");
+
 /* ====== Notificación a backend-facturación ====== */
-async function notifyPaid({ pedidoId, amount, paymentId, method, status }) {
+async function notifyPaid({ pedidoId, payment }) {
   const { factBaseUrl, factApiUrl } = getURLs();
   const base = (factBaseUrl || factApiUrl || '').replace(/\/+$/, '');
   if (!base) return;
 
   const url = `${base}/api/pedidos/${Number(pedidoId)}/pagado`;
+
+  // Campos tomados del Payment de MP
+  const eventId   = String(payment?.id || '');
+  const chargeId  = String(payment?.id || '');
+  const orderId   = payment?.order?.id ?? payment?.merchant_order_id ?? null;
+  const approved  = payment?.date_approved || null;
+
   try {
     await axios.post(url, {
-      amount: Number(amount),
-      pasarela: 'mercado_pago',
-      payment_id: String(paymentId),
-      method: method || 'mp',
-      status: status || 'approved',
+      amount        : Number(payment?.transaction_amount || 0),
+      pasarela      : 'mercado_pago',
+      payment_id    : eventId,                        // compat
+      method        : payment?.payment_method_id || 'mp',
+      status        : payment?.status || null,
+
+      // NUEVO: claves de reconciliación
+      psp_event_id  : eventId,                        // id del Payment
+      psp_charge_id : chargeId,                       // igual al Payment.id
+      psp_order_id  : orderId ? String(orderId) : null,
+      approved_at   : approved,                       // timestamp de MP si lo trae
+
+      // por si luego quieres auditar todo
+      mp_snapshot   : payment
     }, { timeout: 20000, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
     console.warn('[notifyPaid] fallo:', e?.response?.status, e?.message);
   }
 }
-
 /* ===== Rutas ===== */
 
-/* -- Preferencias (Wallet/Checkout Pro) -- */
+/* -- Preferencias (Wallet/Checkout Pro) -- 
+   (Si no usas CP, puedes dejarlo igual; lo mantengo con headers de device) */
 router.post('/psp/mp/preferences', async (req, res) => {
   try {
     const {
@@ -93,7 +134,10 @@ router.post('/psp/mp/preferences', async (req, res) => {
 
     const body = {
       items: [{
+        id: sku || 'SKU-1',
         title: String(title),
+        description: String(title),
+        category_id: 'others',
         quantity: Math.max(1, parseInt(quantity, 10) || 1),
         unit_price: Number(unit_price),
         currency_id
@@ -108,13 +152,17 @@ router.post('/psp/mp/preferences', async (req, res) => {
       metadata: { sku, ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       ...(walletOnly ? { purpose: 'wallet_purchase' } : {}),
+      ...(MP_STATEMENT_DESCRIPTOR ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR } : {}),
     };
 
     const idem = req.get('X-Idempotency-Key') || req.get('x-idempotency-key')
       || String(metadata?.intentId || metadata?.pedidoId || Date.now());
 
     const pref = new Preference(mp);
-    const resp = await pref.create({ body }, { idempotencyKey: idem });
+    const resp = await pref.create(
+      { body },
+      { idempotencyKey: idem, headers: mpHeadersFromReq(req) } // <<<<<< Device ID
+    );
     return res.status(201).json({ preferenceId: resp.id });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;
@@ -134,6 +182,7 @@ async function setPedidoSunatEstado(pedidoId, estado) {
   }
 }
 
+// -- Webhook Mercado Pago --
 router.post(['/psp/mp/webhook', '/webhooks/mp'], async (req, res) => {
   try {
     const payload = req.body || {};
@@ -146,35 +195,24 @@ router.post(['/psp/mp/webhook', '/webhooks/mp'], async (req, res) => {
       const mp = await getMPForRestaurant(restaurantIdHint || 0);
       const payment = await new Payment(mp).get({ id: dataId });
 
-      const pedidoId = payment?.metadata?.pedidoId
-        ?? (payment?.external_reference ? Number(payment.external_reference) : null);
+      const pedidoId =
+        payment?.metadata?.pedidoId ??
+        (payment?.external_reference ? Number(payment.external_reference) : null);
 
       const orderId = payment?.order?.id ?? payment?.merchant_order_id ?? null;
 
       console.log('[mp payment]', {
-  id: String(payment.id),
-  status: payment.status,
-  status_detail: payment.status_detail,      // 👈 agrega esto
-  payment_method_id: payment.payment_method_id,
-  pedidoId,
-  orderId,
-  restaurantIdHint
-});
-
-      if (pedidoId && payment.status !== 'approved') {
-        await setPedidoSunatEstado(pedidoId, payment?.status_detail || payment?.status || 'pending');
-      }
+        id: String(payment.id),
+        status: payment.status,
+        status_detail: payment.status_detail,
+        payment_method_id: payment.payment_method_id,
+        pedidoId,
+        orderId,
+        restaurantIdHint
+      });
 
       if (payment.status === 'approved' && pedidoId) {
-        await oncePerPayment(payment.id, () =>
-          notifyPaid({
-            pedidoId,
-            amount: payment.transaction_amount,
-            paymentId: payment.id,
-            method: payment.payment_method_id || 'mp',
-            status: payment.status,
-          })
-        );
+        await oncePerPayment(payment.id, () => notifyPaid({ pedidoId, payment }));
       }
     }
     return res.sendStatus(200);
@@ -190,7 +228,6 @@ async function handleYape(req, res) {
     const { token, amount, email, description, metadata = {} } = req.body || {};
     if (!token) return res.status(400).json({ error: 'token requerido (Yape)' });
 
-    // Normaliza y valida monto
     const amt = Math.round(Number(amount) * 100) / 100;
     if (!(amt > 0)) return res.status(400).json({ error: 'amount inválido' });
 
@@ -205,18 +242,19 @@ async function handleYape(req, res) {
       transaction_amount: amt,
       installments: 1,
       payment_method_id: 'yape',
-      // En live, email es obligatorio
-      payer: { email: (email || '').trim() || `yape+${Date.now()}@example.com` },
+      payer: { email: (email || '').trim() || `yape+${Date.now()}@example.com` }, // requerido en live
       description: description || 'Pago con Yape',
       metadata: { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url: notifyUrl,
+      ...(MP_STATEMENT_DESCRIPTOR ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR } : {}),
+      ...(MP_BINARY_MODE ? { binary_mode: true } : {}), // aprobado/rechazado
     };
 
-    // Debug útil
-    console.log('[yape] create payment', { amt, payer_email: body.payer.email, idem, restaurantId });
-
-    const payment = await new Payment(mp).create({ body }, { idempotencyKey: idem });
+    const payment = await new Payment(mp).create(
+      { body },
+      { idempotencyKey: idem, headers: mpHeadersFromReq(req) } // <<<<<< Device ID
+    );
     return res.status(201).json({ id: payment.id, status: payment.status, status_detail: payment.status_detail });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;
@@ -243,23 +281,34 @@ async function handleCard(req, res) {
     const idem = req.get('X-Idempotency-Key') || req.get('x-idempotency-key')
       || String(metadata?.intentId || metadata?.pedidoId || Date.now());
 
+    // Enriquecemos payer si viene por metadata (opcional)
+    const nameFromMeta = metadata?.buyer_name || "";
+    const { first_name, last_name } = splitName(nameFromMeta);
+
     const body = {
       token: formData.token,
       transaction_amount: amt,
       installments: Number(formData.installments || 1),
       payment_method_id: formData.payment_method_id,
-      issuer_id: formData.issuer_id,
+      issuer_id: formData.issuer_id, // recomendado
       payer: {
         email: formData?.payer?.email,
         identification: formData?.payer?.identification,
+        ...(first_name ? { first_name } : {}),
+        ...(last_name ? { last_name } : {}),
       },
       description: description || 'Pago con tarjeta',
       metadata: { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url: notifyUrl,
+      ...(MP_STATEMENT_DESCRIPTOR ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR } : {}),
+      ...(MP_BINARY_MODE ? { binary_mode: true } : {}),
     };
 
-    const payment = await new Payment(mp).create({ body }, { idempotencyKey: idem });
+    const payment = await new Payment(mp).create(
+      { body },
+      { idempotencyKey: idem, headers: mpHeadersFromReq(req) } // <<<<<< Device ID
+    );
     return res.status(201).json({ id: payment.id, status: payment.status, status_detail: payment.status_detail });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;

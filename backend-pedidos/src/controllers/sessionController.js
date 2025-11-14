@@ -1,114 +1,76 @@
 // src/controllers/sessionController.js
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { signDbToken } from "../auth/signDbToken.js";
 
-const isProd = process.env.NODE_ENV === "production";
+const DB_SECRET    = process.env.SUPABASE_JWT_SECRET || "dev_admin_secret";
+const ADMIN_SECRET = process.env.JWT_ADMIN_SECRET   || DB_SECRET;
+const COOKIE_NAME  = process.env.AUTH_COOKIE_NAME   || "admin_session";
+const IS_PROD      = String(process.env.NODE_ENV).toLowerCase() === "production";
 
-// Claves consistentes
-const ADMIN_SECRET  = process.env.SUPABASE_JWT_SECRET || "dev_admin_secret";
-const CLIENT_SECRET = process.env.JWT_CLIENT_SECRET || ADMIN_SECRET;
+function extractClaims(payload) {
+  const restaurantId = Number(payload?.restaurantId ?? payload?.restaurant_id ?? 0);
+  const email = payload?.email || payload?.sub || null;
+  const type = payload?.type || "admin";
+  return { restaurantId, email, type };
+}
 
-// Usaremos una sola cookie para admin/cliente
-const COOKIE_NAME   = process.env.AUTH_COOKIE_NAME || "admin_session";
+function setSessionCookie(res, payload) {
+  const token = jwt.sign(payload, ADMIN_SECRET, { expiresIn: "7d" });
 
-/* ========== helpers ========== */
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: IS_PROD, // en dev, false para http://localhost
+    path: "/",
+    // domain: (opcional) si usas un dominio específico
+  });
+}
 
 function ensureCsrfCookie(req, res) {
-  if (!req.cookies?.csrf_token) {
-    const token = crypto.randomBytes(24).toString("hex");
-    res.cookie("csrf_token", token, {
+  const exists = req.cookies?.csrf_token;
+  if (!exists) {
+    const v = crypto.randomBytes(16).toString("hex");
+    res.cookie("csrf_token", v, {
       httpOnly: false,
       sameSite: "lax",
-      secure: isProd,
+      secure: IS_PROD,
       path: "/",
     });
   }
 }
 
-// Verifica con cualquiera de las claves conocidas
+/** Verifica con cualquiera de los secretos admitidos */
 function verifyAny(token) {
-  const secrets = [ADMIN_SECRET, CLIENT_SECRET];
+  const secrets = [ADMIN_SECRET, DB_SECRET];
   for (const s of secrets) {
-    try { return jwt.verify(token, s); } catch {}
+    try {
+      return jwt.verify(token, s);
+    } catch {}
   }
   return null;
 }
 
-function extractClaims(payload = {}) {
-  const type =
-    payload.type ??
-    payload.t ??
-    payload.role ??
-    payload.rol ??
-    null;
-
-  const email =
-    payload.email ??
-    payload.user_email ??
-    payload.user?.email ??
-    payload.sub ??
-    null;
-
-  const restaurantId = Number(
-    payload.restaurantId ??
-    payload.restaurant_id ??
-    payload.restauranteId ??
-    0
-  );
-
-  return { type, email, restaurantId };
-}
-
-function setSessionCookie(res, { type, email, restaurantId }) {
-  const days = Number(process.env.AUTH_COOKIE_DAYS || 30);
-  const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-
-  // Firmamos SIEMPRE la cookie con ADMIN_SECRET para leerla de forma uniforme
-  const sessionJwt = jwt.sign(
-    {
-      type: type || "client",
-      email: email || null,       // puede ser null para cliente anónimo
-      restaurantId: Number(restaurantId),
-    },
-    ADMIN_SECRET,
-    { expiresIn: `${days}d` }
-  );
-
-  res.cookie(COOKIE_NAME, sessionJwt, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: isProd,
-    path: "/",
-    expires,
-  });
-}
-
-/* ========== Rutas ========== */
-
-/** POST /api/auth/session
- * Body: { token }  (puede venir de login admin o login-cliente)
- * - Acepta tokens firmados con ADMIN_SECRET o CLIENT_SECRET
- * - Para cliente NO exige email; solo restaurantId
- * - Crea cookie httpOnly uniforme firmada con ADMIN_SECRET
+/**
+ * POST /api/auth/session
+ * Body: { token }
+ * - Acepta un JWT válido (dbToken o admin token)
+ * - Verifica firmando (SIN decode libre)
+ * - Si ok -> siembra cookie httpOnly (admin_session)
  */
 export async function setSessionFromToken(req, res) {
   try {
     const token = String(req.body?.token || "");
     if (!token) return res.status(400).json({ error: "token requerido" });
 
-    let payload = verifyAny(token);
-    if (!payload) {
-      // último recurso en dev: decodifica (seguimos validando campos)
-      try { payload = jwt.decode(token) || null; } catch { payload = null; }
-    }
+    const payload = verifyAny(token);
     if (!payload) return res.status(401).json({ error: "token inválido" });
 
-    const { type, email, restaurantId } = extractClaims(payload);
-    if (!Number(restaurantId)) {
-      return res.status(401).json({ error: "claims incompletos" });
-    }
+    const { restaurantId, email, type } = extractClaims(payload);
+    if (!restaurantId) return res.status(401).json({ error: "claims incompletos" });
 
-    setSessionCookie(res, { type, email, restaurantId });
+    // cookie con claims mínimos
+    setSessionCookie(res, { restaurantId, email, type: type || "admin" });
     ensureCsrfCookie(req, res);
     return res.status(204).end();
   } catch (e) {
@@ -117,45 +79,79 @@ export async function setSessionFromToken(req, res) {
   }
 }
 
-/** GET /api/auth/validate-cookie
- * Lee y valida la cookie httpOnly firmada con ADMIN_SECRET
+/**
+ * GET /api/auth/validate-cookie
+ * - 204 si cookie válida; 401 si no
  */
 export function validateCookie(req, res) {
   try {
     const raw = req.cookies?.[COOKIE_NAME];
-    if (!raw) return res.status(401).json({ error: "Sin sesión" });
-
-    const payload = jwt.verify(raw, ADMIN_SECRET);
-    const { type, email, restaurantId } = extractClaims(payload);
-    if (!Number(restaurantId)) {
-      return res.status(401).json({ error: "Sesión incompleta" });
-    }
-    return res.json({ ok: true, type: type || "client", email: email || null, restaurantId: Number(restaurantId) });
+    if (!raw) return res.status(401).json({ error: "Sin cookie" });
+    jwt.verify(raw, ADMIN_SECRET);
+    return res.status(204).end();
   } catch {
-    return res.status(401).json({ error: "Sesión inválida" });
+    return res.status(401).json({ error: "Cookie inválida" });
   }
 }
 
-/** POST /api/auth/logout */
+/**
+ * GET /api/auth/session-state
+ * - Estado simple (siempre 200)
+ */
+export function sessionState(req, res) {
+  const has = !!req.cookies?.[COOKIE_NAME];
+  res.json({ hasCookie: has, cookieName: COOKIE_NAME });
+}
+
+/**
+ * POST /api/auth/logout
+ * - Borra la cookie httpOnly
+ */
 export function logout(_req, res) {
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProd,
+    secure: IS_PROD,
     path: "/",
   });
   return res.status(204).end();
 }
 
-/** GET /api/auth/session-state (siempre 200) */
-export function sessionState(req, res) {
-  const raw = req.cookies?.[COOKIE_NAME];
-  if (!raw) return res.json({ loggedIn: false });
+/**
+ * POST /api/session/refresh
+ * - Usa cookie httpOnly (firmada con ADMIN_SECRET)
+ * - Emite un dbToken (RLS) con restaurantId/email (1h)
+ */
+export async function refreshFromCookie(req, res) {
   try {
-    const payload = jwt.verify(raw, ADMIN_SECRET);
-    const { restaurantId } = extractClaims(payload);
-    return res.json({ loggedIn: Number(restaurantId) > 0 });
-  } catch {
-    return res.json({ loggedIn: false });
+    const raw = req.cookies?.[COOKIE_NAME];
+    if (!raw) return res.status(401).json({ error: "Sin sesión" });
+
+    let payload;
+    try {
+      payload = jwt.verify(raw, ADMIN_SECRET);
+    } catch {
+      return res.status(401).json({ error: "Sesión inválida" });
+    }
+
+    const restaurantId = Number(
+      payload?.restaurantId ?? payload?.restaurant_id ?? 0
+    );
+    if (!restaurantId) {
+      return res.status(401).json({ error: "Sesión incompleta" });
+    }
+
+    const email = payload?.email || payload?.sub || `anon+${restaurantId}@client.local`;
+
+    const dbToken = await signDbToken({
+      email,
+      restaurantId,
+      ttlSec: 3600,
+    });
+
+    return res.json({ dbToken });
+  } catch (e) {
+    console.error("[/session/refresh] error:", e);
+    return res.status(500).json({ error: "Error al refrescar sesión" });
   }
 }

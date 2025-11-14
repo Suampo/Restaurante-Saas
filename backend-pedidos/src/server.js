@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
-
+import { imgRouter } from "./routes/img.js";
 /* ===== Rutas (estables) ===== */
 import pspPublicRoutes from "./routes/psp.public.js";
 import authPublicRoutes from "./routes/auth.public.js";
@@ -18,11 +18,13 @@ import sessionLoginRoutes from "./routes/session.js";
 import sessionCookieRoutes from "./routes/sessionRoutes.js";
 import checkoutRoutes from "./routes/checkout.routes.js";
 import devRoutes from "./routes/devRoutes.js";
+import takeawayRoutes from "./routes/takeaway.routes.js";
 import publicMesas from "./routes/public.mesas.js";
 import combosRoutes from "./routes/combosRoutes.js";
 import menuRoutes from "./routes/menuRoutes.js";
 import pedidoRoutes from "./routes/pedidoRoutes.js";
 import publicMenuRoutes from "./routes/public.menu.js";
+import publicMenuV2Routes from "./routes/public.menu.v2.js";
 import restaurantsPublic from "./routes/public.restaurants.js";
 import authRoutes from "./routes/authRoutes.js";
 import mesaRoutes from "./routes/mesaRoutes.js";
@@ -32,11 +34,14 @@ import menuItemRoutes from "./routes/menuItemRoutes.js";
 import categoriaRoutes from "./routes/categoriaRoutes.js";
 import reportesRoutes from "./routes/reportesRoutes.js";
 import exportRoutes from "./routes/export.js";
+import staffRoutes from "./routes/staff.routes.js";
 
-/* ✅ IMPORTA INVENTARIO (FALTABA) */
+
+/* ✅ INVENTARIO */
 import inventarioRoutes from "./routes/inventarioRoutes.js";
 
-/* 👉 Ruta pública de Mercado Pago (ESM) */
+/* ✅ NUEVO: Admin – movimientos de efectivo (para vista Trabajadores) */
+import adminCashRoutes from "./routes/admin.cash.js";
 
 /* ===== Middlewares ===== */
 import { requireCsrf } from "./middlewares/requireCsrf.js";
@@ -88,9 +93,6 @@ app.use(
 /* ===== Cookies antes de CSRF ===== */
 app.use(cookieParser());
 
-/* 👉 Monta la ruta pública de MP ANTES del CSRF */
-// (si tienes una ruta ESM para MP pública, va aquí)
-
 /* Siembra CSRF si falta (cookie legible por el front) */
 app.use((req, res, next) => {
   if (!req.cookies?.csrf_token) {
@@ -115,9 +117,11 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
+/* ===== /img (optimización) ANTES de CSRF ===== */
+app.use("/img", imgRouter);
+
 /* ===== CSRF (double-submit cookie) ===== */
 app.use(requireCsrf);
-
 /* ===== Cache headers ===== */
 app.use((req, res, next) => {
   if (req.path && req.path.startsWith("/api/reportes")) {
@@ -189,15 +193,20 @@ if (isProdLimits) {
 }
 
 /* ===== RUTAS PÚBLICAS (orden importa) ===== */
+app.use("/api/staff", requireDbToken, staffRoutes);
+
 app.use("/api", publicMesas);           // GET /api/public/mesas/resolve
 app.use("/api", restaurantsPublic);     // GET /api/public/restaurants/:id
 app.use("/api", publicMenuRoutes);      // GET /api/public/menu
 app.use("/api", sessionCookieRoutes);   // /api/csrf + /api/session/refresh + /api/auth/*
 app.use("/api", sessionLoginRoutes);    // /api/session/login
 app.use("/api", authPublicRoutes);
-app.use("/api", pspPublicRoutes);       // otras PSPs
+app.use("/api", pspPublicRoutes);
+app.use("/api/pay", payRoutes);
 app.use("/api/dev", devRoutes);
 app.use("/api/checkout", checkoutRoutes);
+app.use("/api", publicMenuV2Routes);   // GET /api/public/menu-v2
+app.use("/api", takeawayRoutes);
 
 /* ===== RUTAS PROTEGIDAS / MIXTAS ===== */
 // Pedidos: POST raíz público con rate-limit; resto con token
@@ -210,7 +219,7 @@ const guardPedidos = (req, res, next) => {
 };
 app.use("/api/pedidos", guardPedidos, pedidoRoutes);
 
-// ✅ INVENTARIO (ESTO FALTABA)
+// Inventario
 app.use("/api/inventario", requireDbToken, inventarioRoutes);
 
 // El resto protegido
@@ -220,10 +229,12 @@ app.use("/api/mesas", requireDbToken, mesaRoutes);
 app.use("/api/menu-item", requireDbToken, menuImageRoutes);
 app.use("/api/menu-items", requireDbToken, menuItemRoutes);
 app.use("/api/combos", requireDbToken, combosRoutes);
-app.use("/api/pay", requireDbToken, payRoutes);
 app.use("/api/categorias", requireDbToken, categoriaRoutes);
 app.use("/api/reportes", requireDbToken, reportesRoutes);
 app.use("/api", requireDbToken, exportRoutes);
+
+/* ✅ ADMIN (para “Trabajadores”) */
+app.use("/admin", requireDbToken, adminCashRoutes);
 
 /* ===== Estáticos ===== */
 const __filename = fileURLToPath(import.meta.url);

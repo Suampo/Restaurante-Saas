@@ -8,18 +8,22 @@ import morgan from "morgan";
 import mpPSP from "./src/routes/psp.mercadopago.js";
 import culqiPSP from "./src/routes/psp.culqi.js";
 import mpPublic from "./src/routes/mp.public.js";
-import { getMpKeysForRestaurant } from "./src/services/mpKeys.js";
+import {
+  getMpKeysForRestaurant,
+  getEnvMpAccessToken,
+} from "./src/services/mpKeys.js";
 
 const app = express();
 
 /* ===== CORS ===== */
 const origins = (process.env.CORS_ORIGINS || "http://localhost:5173")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 app.disable("x-powered-by");
 app.set("etag", false);
+
 app.use(
   cors({
     origin: (origin, cb) => cb(null, !origin || origins.includes(origin)),
@@ -35,22 +39,24 @@ app.get("/", (_, res) => res.send("backend-pasarela OK"));
 
 /* ===== DEBUG: token del .env (no multitenant) ===== */
 app.get("/__mpdebug", (_, res) => {
-  const raw = process.env.MP_ACCESS_TOKEN || "";
-  const t = raw.trim();
+  const raw = getEnvMpAccessToken() || "";
   res.json({
-    len: t.length,
-    startsWithTEST: t.startsWith("TEST-"),
+    len: raw.length,
+    startsWithTEST: raw.startsWith("TEST-"),
+    startsWithAPPUSR: raw.startsWith("APP_USR-"),
     hasWhitespace: /\s/.test(raw),
-    tail6: t.slice(-6),
+    tail6: raw.slice(-6),
   });
 });
 
 /* ===== DEBUG: chequeo del token del .env contra /users/me ===== */
 app.get("/__mpcheck", async (_, res) => {
   try {
-    const t = (process.env.MP_ACCESS_TOKEN || "").trim();
+    const token = getEnvMpAccessToken();
+    if (!token) return res.status(404).json({ error: "MP_ACCESS_TOKEN vacío" });
+
     const r = await fetch("https://api.mercadopago.com/users/me", {
-      headers: { Authorization: `Bearer ${t}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     const text = await r.text();
     res.status(r.status).type("application/json").send(text);
@@ -59,18 +65,18 @@ app.get("/__mpcheck", async (_, res) => {
   }
 });
 
-/* ===== DEBUG: credenciales por restaurantId (desde Supabase) =====
+/* ===== DEBUG: credenciales por restaurantId (desde Supabase)
    GET /__mpcred?restaurantId=1
-   - Verifica que publicKey y accessToken coincidan en ambiente (TEST/APP_USR)
-   - site_id debe ser MPE para Yape
-=================================================================== */
+   - Verifica que publicKey/accessToken existan y el token funcione.
+   - site_id debe ser MPE para Yape.
+================================================================ */
 app.get("/__mpcred", async (req, res) => {
   try {
-    const rid =
-      Number(req.query.restaurantId || req.headers["x-restaurant-id"] || 0);
+    const rid = Number(
+      req.query.restaurantId || req.headers["x-restaurant-id"] || 0
+    );
 
     const { accessToken, publicKey } = await getMpKeysForRestaurant(rid);
-
     if (!accessToken && !publicKey) {
       return res
         .status(404)
@@ -108,15 +114,15 @@ app.get("/__mpcred", async (req, res) => {
 
 /* ===== RUTAS bajo /api ===== */
 app.use("/api", mpPublic); // /api/psp/mp/public-key
-app.use("/api", mpPSP);    // /api/psp/mp/preferences, /api/psp/mp/payments/*, /api/psp/mp/webhook
+app.use("/api", mpPSP); // /api/psp/mp/preferences, /api/psp/mp/payments/*, /api/psp/mp/webhook
 app.use("/api", culqiPSP); // /api/psp/culqi/*
 
 /* ===== START ===== */
-const port = process.env.PORT || 5500;
+const port = Number(process.env.PORT || 5500);
 app.listen(port, () => {
   console.log(`pasarela on :${port}`);
-  console.log("FRONTEND_URL:", process.env.FRONTEND_URL);
-  console.log("BASE_URL    :", process.env.BASE_URL);
+  console.log("FRONTEND_URL :", process.env.FRONTEND_URL);
+  console.log("BASE_URL     :", process.env.BASE_URL);
   console.log("MP_WEBHOOK_URL:", process.env.MP_WEBHOOK_URL);
-  console.log("MP key len  :", (process.env.MP_ACCESS_TOKEN || "").trim().length);
+  console.log("MP token (.env) len:", (getEnvMpAccessToken() || "").length);
 });

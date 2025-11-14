@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 const APISPERU_BASE = process.env.APISPERU_BASE || 'https://facturacion.apisperu.com/api/v1';
-const CPE_BUCKET = process.env.CPE_BUCKET || 'cpe';
+const CPE_BUCKET    = process.env.CPE_BUCKET || 'cpe';
 
 const { supabase } = require('../services/supabase');
 const { reservarCorrelativo } = require('../services/series');
@@ -119,32 +119,78 @@ async function guardarReciboSimplePDF({ restaurantId, pedido, amountOverride = n
   }
 }
 
-/* ====== NUEVO: helpers para intents ====== */
+/* ====== helpers para intents y pagos ====== */
 function isUUIDv4Like(s) {
   return typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
+/** Crea/actualiza fila en public.pagos con IDs y approved_at */
+async function upsertPagoFromMP({ payment, pedidoId, restaurantId }) {
+  if (!pedidoId) return;
+
+  const paymentId = String(payment?.id || '');
+  const base = {
+    psp: 'mercado_pago',
+    metodo: payment?.payment_method_id || null,
+    estado: payment?.status || null,
+    currency: payment?.currency_id || 'PEN',
+    monto: payment?.transaction_amount ?? null,
+    psp_event_id: paymentId,
+    psp_charge_id: paymentId, // usamos payment.id como “charge”
+    psp_order_id: payment?.order?.id ? String(payment.order.id) : null,
+    approved_at: (payment?.status === 'approved') ? new Date().toISOString() : null,
+    psp_payload: payment || null
+  };
+
+  // 1) intenta por psp_event_id (lo más seguro)
+  const { data: byEvent } = await supabase
+    .from('pagos')
+    .select('id')
+    .eq('psp_event_id', paymentId)
+    .limit(1)
+    .maybeSingle();
+
+  if (byEvent?.id) {
+    await supabase.from('pagos').update(base).eq('id', byEvent.id);
+    return;
+  }
+
+  // 2) si no existe, toma la última fila del pedido con MP y actualiza
+  const { data: existing } = await supabase
+    .from('pagos')
+    .select('id')
+    .eq('pedido_id', pedidoId)
+    .eq('psp', 'mercado_pago')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing?.id) {
+    await supabase.from('pagos').update(base).eq('id', existing.id);
+  } else {
+    await supabase.from('pagos').insert([{ pedido_id: pedidoId, restaurant_id: restaurantId || null, ...base }]);
+  }
+}
+
 /** Crea pedido desde checkout_intents si está 'pending' y devuelve pedidoId */
-async function ensurePedidoFromIntent(intentId, payment) {
+async function ensurePedidoFromIntent(intentId, _payment) {
   try {
     const { data: intent } = await supabase
       .from('checkout_intents').select('*').eq('id', String(intentId)).maybeSingle();
     if (!intent) return null;
     if (intent.status !== 'pending') return intent.pedido_id || null;
 
-    // Obtenemos restaurant_id (int) desde la mesa
     const { data: mesa } = await supabase
       .from('mesas').select('restaurant_id').eq('id', intent.mesa_id).maybeSingle();
     const restaurantIdInt = Number(mesa?.restaurant_id || 0) || null;
 
-    // Insert del pedido (ajusta columnas si tu tabla lo requiere)
     const ins = await supabase
       .from('pedidos')
       .insert([{
-        restaurant_id: restaurantIdInt,          // entero
+        restaurant_id: restaurantIdInt,
         mesa_id: intent.mesa_id,
         total: Number(intent.amount),
-        estado: 'pendiente',                     // <— ya NO lo marcamos pagado aquí
+        estado: 'pendiente_pago',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }])
@@ -167,7 +213,7 @@ async function ensurePedidoFromIntent(intentId, payment) {
   }
 }
 
-/* ====== NUEVO: recompute del estado y emisión si ya completó ====== */
+/* ====== recompute del estado y emisión si ya completó ====== */
 async function getSaldo(pedidoId) {
   const { data: ped } = await supabase
     .from('pedidos')
@@ -191,11 +237,12 @@ async function getSaldo(pedidoId) {
 
 async function recomputeAndEmitIfPaid_local(pedidoId) {
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
+
   if (pendiente > 0.01) {
-    // sigue parcial
-    if (pedido.estado !== 'parcial') {
+    // mantenemos 'pendiente_pago' para evitar problemas de ENUM
+    if (pedido.estado !== 'pendiente_pago') {
       await supabase.from('pedidos').update({
-        estado: 'parcial',
+        estado: 'pendiente_pago',
         updated_at: new Date().toISOString()
       }).eq('id', pedido.id);
     }
@@ -224,7 +271,7 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
     .maybeSingle();
   const billingMode = rinfo?.billing_mode || 'none';
 
-  // si no es SUNAT → genera Recibo Simple (1 sola vez)
+  // no-SUNAT → Recibo Simple
   if (billingMode !== 'sunat') {
     try {
       const { pedido: pedFull } = await getPedidoCompleto(pedidoId);
@@ -239,7 +286,6 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
   const comprobanteTipo = String(pedido.comprobante_tipo || '03');
   const { pedido: pedFull, detalles } = await getPedidoCompleto(pedidoId);
 
-  // completa billing si faltara
   const billing =
     (pedFull.billing_client && Object.keys(pedFull.billing_client).length > 0)
       ? pedFull.billing_client
@@ -264,7 +310,7 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
     pedido: pedFull,
   });
 
-  // pre-inserta CPE
+  // pre-inserción CPE
   const { data: cpeIns } = await supabase.from('cpe_documents').insert([{
     restaurant_id: rid,
     pedido_id: pedidoId,
@@ -281,7 +327,7 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
   }]).select('id').maybeSingle();
   const cpeId = cpeIns?.id;
 
-  // emite
+  // emitir
   let resp;
   try {
     resp = await emitirInvoice({ restaurantId: rid, cpeBody });
@@ -302,7 +348,7 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
   // artefactos
   let pdf_url = null, xml_url = null, cdr_url = null;
   try {
-    const base = `${emisor.ruc}/${serie}-${String(correlativo).padStart(8,'0')}`;
+    const base = `${(await getEmisorByRestaurant(rid)).ruc}/${serie}-${String(correlativo).padStart(8,'0')}`;
 
     try {
       pdf_url = await makePdfAndSave({ restaurantId: rid, rawRequest: cpeBody, serie, correlativo });
@@ -339,118 +385,109 @@ async function recomputeAndEmitIfPaid_local(pedidoId) {
   return { ok: true, status: 'paid', pagado, pendiente: 0, cpeId, estado };
 }
 
-/* -------------------- endpoint -------------------- */
-router.all('/webhooks/mp', (req, res, next) => {
-  console.log('[mp webhook] hit', req.method, req.url, 'ua=', req.headers['user-agent'] || '');
-  next();
-});
-router.get('/webhooks/mp', (req, res) => res.status(200).json({ ok: true }));
-router.head('/webhooks/mp', (req, res) => res.sendStatus(200));
+/* -------------------- endpoints -------------------- */
+// Asegura compatibilidad con como lo montaste en server: /api/psp + (estos paths)
+const webhookPaths = ['/webhooks/mp', '/mp/webhook', '/webhook'];
 
-router.post('/webhooks/mp', express.json({ type: '*/*' }), async (req, res) => {
-  try {
-    const payload = req.body || {};
-    const rawType = payload.type || payload.action || '';
-    const type = String(rawType).toLowerCase();
-    if (!type.includes('payment')) return res.sendStatus(200);
+webhookPaths.forEach((path) => {
+  router.all(path, (req, _res, next) => {
+    console.log('[mp webhook] hit', req.method, req.originalUrl || req.url, 'ua=', req.headers['user-agent'] || '');
+    next();
+  });
+  router.get(path, (_req, res) => res.status(200).json({ ok: true }));
+  router.head(path, (_req, res) => res.sendStatus(200));
 
-    const dataId =
-      payload?.data?.id ||
-      (payload?.resource ? String(payload.resource).split('/').pop() : null);
-    if (!dataId) return res.sendStatus(200);
-
-    const restaurantIdFromQuery = Number(req.query.restaurantId || 0) || null;
-    const token1 = await getMpAccessTokenForRestaurant(restaurantIdFromQuery);
-    const mp1 = new MPConfig({ accessToken: token1 });
-
-    // Lee el pago
-    let payment;
+  router.post(path, express.json({ type: '*/*' }), async (req, res) => {
     try {
-      payment = await new Payment(mp1).get({ id: dataId });
-    } catch (e) {
-      console.error('[mp] Payment.get fallo con token1', e?.status || e?.response?.status, e?.message);
-      const tokenEnv = (process.env.MP_ACCESS_TOKEN || '').trim();
-      if (!tokenEnv || tokenEnv === token1) return res.sendStatus(200);
+      const payload = req.body || {};
+      const rawType = payload.type || payload.action || '';
+      const type = String(rawType).toLowerCase();
+      if (!type.includes('payment')) return res.sendStatus(200);
+
+      const dataId =
+        payload?.data?.id ||
+        (payload?.resource ? String(payload.resource).split('/').pop() : null);
+      if (!dataId) return res.sendStatus(200);
+
+      const restaurantIdFromQuery = Number(req.query.restaurantId || 0) || null;
+      const token1 = await getMpAccessTokenForRestaurant(restaurantIdFromQuery);
+      const mp1 = new MPConfig({ accessToken: token1 });
+
+      // Lee el pago
+      let payment;
       try {
-        payment = await new Payment(new MPConfig({ accessToken: tokenEnv })).get({ id: dataId });
-      } catch (e2) {
-        console.error('[mp] Payment.get fallo con token env', e2?.status || e2?.response?.status, e2?.message);
-        return res.sendStatus(200);
-      }
-    }
-
-    const status = payment?.status;
-
-    // (1) intenta pedidoId clásico
-    let pedidoId =
-      Number(payment?.metadata?.pedidoId || payment?.metadata?.pedido_id || 0) ||
-      (payment?.external_reference ? Number(payment.external_reference) : null);
-
-    // (2) si no hay pedidoId pero external_reference es uuid y está aprobado → crea pedido desde intent
-    const intentId = payment?.external_reference;
-    if (!pedidoId && isUUIDv4Like(intentId) && status === 'approved') {
-      pedidoId = await ensurePedidoFromIntent(intentId, payment);
-    }
-
-    const orderId = payment?.order?.id || null;
-
-    // fallback de restaurantId si no vino en la URL
-    const restaurantId =
-      restaurantIdFromQuery ||
-      Number(payment?.metadata?.restaurantId || payment?.metadata?.restaurant_id || 0) ||
-      null;
-
-    console.log('[mp payment]', {
-      id: String(payment?.id || dataId),
-      status,
-      pedidoId,
-      orderId,
-      restaurantIdHint: restaurantId,
-      external_reference: intentId
-    });
-
-    // log mínimo del pago
-    try {
-      await supabase.from('pagos').insert([{
-        pedido_id: pedidoId || null,
-        psp: 'mp',
-        psp_event_id: String(payment?.id || dataId),
-        psp_order_id: String(orderId || ''),
-        restaurant_id: restaurantId,
-        metodo: payment?.payment_method_id || null,
-        estado: status || null,
-        currency: payment?.currency_id || 'PEN',
-        monto: payment?.transaction_amount ?? null,
-        psp_payload: payment || null,
-      }]);
-    } catch {}
-
-    // Si aún no hay pedidoId o no está aprobado → salir
-    if (status !== 'approved' || !pedidoId) return res.sendStatus(200);
-
-    // ===== NUEVO: en vez de marcar 'pagado' y emitir aquí, recomputamos =====
-    try {
-      // si exportaste la función desde split.payments.js, úsala:
-      let handled = false;
-      try {
-        const split = require('./split.payments.js');
-        if (split && typeof split.recomputeAndEmitIfPaid === 'function') {
-          await split.recomputeAndEmitIfPaid(pedidoId);
-          handled = true;
+        payment = await new Payment(mp1).get({ id: dataId });
+      } catch (e) {
+        console.error('[mp] Payment.get fallo con token1', e?.status || e?.response?.status, e?.message);
+        const tokenEnv = (process.env.MP_ACCESS_TOKEN || '').trim();
+        if (!tokenEnv || tokenEnv === token1) return res.sendStatus(200);
+        try {
+          payment = await new Payment(new MPConfig({ accessToken: tokenEnv })).get({ id: dataId });
+        } catch (e2) {
+          console.error('[mp] Payment.get fallo con token env', e2?.status || e2?.response?.status, e2?.message);
+          return res.sendStatus(200);
         }
-      } catch {}
-      if (!handled) {
-        await recomputeAndEmitIfPaid_local(pedidoId);
       }
-    } catch (e) {
-      console.warn('[split recompute] warn:', e?.message || e);
-    }
 
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error('[webhook.mp] err:', err?.message || err);
-    return res.sendStatus(200); // evitar reintentos masivos
-  }
+      const status = payment?.status;
+
+      // (1) pedidoId clásico desde metadata/external_reference numérica
+      let pedidoId =
+        Number(payment?.metadata?.pedidoId || payment?.metadata?.pedido_id || 0) ||
+        (payment?.external_reference ? Number(payment.external_reference) : null);
+
+      // (2) si external_reference es UUID (intent) y está approved → crea Pedido
+      const intentId = payment?.external_reference;
+      if (!pedidoId && isUUIDv4Like(intentId) && status === 'approved') {
+        pedidoId = await ensurePedidoFromIntent(intentId, payment);
+      }
+
+      const orderId = payment?.order?.id || null;
+
+      // fallback de restaurantId si no vino en la URL
+      const restaurantId =
+        restaurantIdFromQuery ||
+        Number(payment?.metadata?.restaurantId || payment?.metadata?.restaurant_id || 0) ||
+        null;
+
+      console.log('[mp payment]', {
+        id: String(payment?.id || dataId),
+        status,
+        pedidoId,
+        orderId,
+        restaurantIdHint: restaurantId,
+        external_reference: intentId
+      });
+
+      // guarda/actualiza el pago con IDs y approved_at
+      await upsertPagoFromMP({ payment, pedidoId, restaurantId });
+
+      // Si aún no hay pedidoId o no está aprobado → salir
+      if (status !== 'approved' || !pedidoId) return res.sendStatus(200);
+
+      // Recompute + emisión si corresponde
+      try {
+        let handled = false;
+        try {
+          const split = require('./split.payments.js');
+          if (split && typeof split.recomputeAndEmitIfPaid === 'function') {
+            await split.recomputeAndEmitIfPaid(pedidoId);
+            handled = true;
+          }
+        } catch {}
+        if (!handled) {
+          await recomputeAndEmitIfPaid_local(pedidoId);
+        }
+      } catch (e) {
+        console.warn('[split recompute] warn:', e?.message || e);
+      }
+
+      return res.sendStatus(200);
+    } catch (err) {
+      console.error('[webhook.mp] err:', err?.message || err);
+      return res.sendStatus(200); // evitar reintentos masivos
+    }
+  });
 });
 
 module.exports = router;

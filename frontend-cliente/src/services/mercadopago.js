@@ -1,7 +1,7 @@
 // src/services/mercadopago.js
 import axios from "axios";
 
-/* ========== CSRF helpers (si tu backend los usa) ========== */
+/* ======= CSRF helpers (si tu backend los usa) ======= */
 function getCookie(name) {
   if (typeof document === "undefined") return null;
   const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
@@ -22,7 +22,7 @@ export async function ensureCsrfCookie() {
   } catch {}
 }
 
-/* ========== Base PASARELA (tu :5500/api) ========== */
+/* ======= Base de PASARELA (:5500/api o override por env) ======= */
 function apiPsp(path) {
   const base =
     import.meta.env.VITE_PASARELA_URL ||
@@ -31,7 +31,23 @@ function apiPsp(path) {
   return base.replace(/\/+$/, "") + path;
 }
 
-/* ========== Public Key (para @mercadopago/sdk-react) ========== */
+/* ======= Singleton de MP.js v2 para Device Session ======= */
+function getMpSingleton() {
+  try {
+    const pk = window.__MP_INIT_KEY || import.meta.env.VITE_MP_PUBLIC_KEY;
+    if (!window.MercadoPago || !pk) return null;
+    return (window.__MP_SINGLETON =
+      window.__MP_SINGLETON || new window.MercadoPago(pk, { locale: "es-PE" }));
+  } catch {
+    return null;
+  }
+}
+function getMpDeviceId() {
+  const mp = getMpSingleton();
+  return mp && typeof mp.getDeviceId === "function" ? mp.getDeviceId() : null;
+}
+
+/* ======= Public Key (para @mercadopago/sdk-react) ======= */
 export async function getMPPublicKey(restaurantId) {
   const url =
     apiPsp("/psp/mp/public-key") +
@@ -41,7 +57,7 @@ export async function getMPPublicKey(restaurantId) {
   return data.publicKey;
 }
 
-/* ========== Pago con Tarjeta (CardPayment Brick) ========== */
+/* ======= Pago con Tarjeta (CardPayment Brick) ======= */
 export async function payWithCardViaBrick({
   amount,
   formData,
@@ -55,21 +71,24 @@ export async function payWithCardViaBrick({
   const idem =
     idempotencyKey ||
     String(metadata?.intentId || metadata?.pedidoId || Date.now());
+  const deviceId = getMpDeviceId();
 
   const url =
     apiPsp("/psp/mp/payments/card") + (rid ? `?restaurantId=${rid}` : "");
 
   const res = await fetch(url, {
     method: "POST",
+    credentials: "include",
     headers: withCsrf({
       "Content-Type": "application/json",
       "X-Idempotency-Key": idem,
+      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}),
     }),
     body: JSON.stringify({
       amount: Number(amount),
       formData,
       description,
-      metadata, // { restaurantId, intentId, pedidoId }
+      metadata, // { restaurantId, intentId, pedidoId, ... }
     }),
   });
 
@@ -80,9 +99,9 @@ export async function payWithCardViaBrick({
   return res.json();
 }
 
-/* ========== Pago con Yape (Payment Brick → token) ========== */
+/* ======= Pago con Yape (token MP.js v2) ======= */
 export async function payWithYape({
-  token,             // ← viene del Payment Brick (formData.token)
+  token,
   amount,
   email,
   description,
@@ -95,22 +114,25 @@ export async function payWithYape({
   const idem =
     idempotencyKey ||
     String(metadata?.intentId || metadata?.pedidoId || Date.now());
+  const deviceId = getMpDeviceId();
 
   const url =
     apiPsp("/psp/mp/payments/yape") + (rid ? `?restaurantId=${rid}` : "");
 
   const res = await fetch(url, {
     method: "POST",
+    credentials: "include",
     headers: withCsrf({
       "Content-Type": "application/json",
       "X-Idempotency-Key": idem,
+      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}),
     }),
     body: JSON.stringify({
       token,
       amount: Number(amount),
       email,
       description,
-      metadata, // { restaurantId, intentId, pedidoId }
+      metadata,
     }),
   });
 

@@ -1,7 +1,7 @@
 // src/services/menuApi.js
 import api from "./axiosInstance";
 
-/** Lista de items (admin) -> devuelve siempre array */
+/** Lista de items (admin) */
 export async function getMenuItems(params = {}) {
   const { data } = await api.get("/menu-items", { params });
   return Array.isArray(data) ? data : data?.data ?? [];
@@ -24,10 +24,18 @@ export async function updateMenuItem(id, payload) {
   return data;
 }
 
-/** Eliminar item */
+/** Eliminar item (hard-delete; si falla, soft-disable) */
 export async function deleteMenuItemApi(id) {
-  const { data } = await api.delete(`/menu-items/${id}`);
-  return data;
+  try {
+    const { data } = await api.delete(`/menu-items/${id}`);
+    return data;
+  } catch (e) {
+    if (e?.response?.status === 409 || e?.response?.status === 405) {
+      const { data } = await api.put(`/menu-items/${id}`, { activo: false });
+      return data;
+    }
+    throw e;
+  }
 }
 
 /** Subir imagen (campo 'image' por defecto) */
