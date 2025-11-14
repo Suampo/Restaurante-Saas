@@ -1,38 +1,34 @@
+// src/components/ComboSheet.jsx
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useMenuPublic } from "../hooks/useMenuPublic";
 import { FALLBACK_IMG, absolute as makeAbs } from "../lib/ui";
 
-/* Iconos inline */
-const Check = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" {...p}>
-    <path d="M20 6L9 17l-5-5" />
-  </svg>
+/* --- UTILS & ICONS --- */
+const currency = (n) =>
+  new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" }).format(n || 0);
+
+const norm = (s) =>
+  String(s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+// Iconos SVG optimizados
+const IconCheck = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M20 6L9 17l-5-5" /></svg>
 );
-const Close = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" {...p}>
-    <path d="M18 6L6 18M6 6l12 12" />
-  </svg>
+const IconClose = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 6L6 18M6 6l12 12" /></svg>
 );
-const Bowl = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" {...p}>
-    <path d="M4 13a8 8 0 0016 0H4z" />
-    <path d="M3 13h18" />
-  </svg>
+const IconLeaf = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></svg>
 );
-const Leaf = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" {...p}>
-    <path d="M12 20c4.418 0 8-3.582 8-8 0-5-4-8-8-8-4.418 0-8 3-8 8 0 4.418 3.582 8 8 8z" />
-    <path d="M12 12c-2 2-3 4-3 6" />
-  </svg>
+const IconBowl = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4 10h16a1 1 0 0 1 1 1v2a8 8 0 0 1-8 8h0a8 8 0 0 1-8-8v-2a1 1 0 0 1 1-1Z" /><path d="M4 10h16a1 1 0 0 1 1 1v2a8 8 0 0 1-8 8h0a8 8 0 0 1-8-8v-2a1 1 0 0 1 1-1Z" /><path d="m6.1 10 .9-5a1 1 0 0 1 1.1-.8h7.8a1 1 0 0 1 1.1.8l.9 5" /></svg>
 );
 
-const currency = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
-const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-
+// Palabras clave para agrupar extras automáticamente
 const KEYWORDS = {
   extras: ["extra", "adicional", "topping", "agregado"],
-  acomp: ["acompan", "acompañ", "guarn", "side", "guarnicion"],
-  drinks: ["bebida", "gaseosa", "refresco", "drink"],
+  acomp: ["acompan", "acompañ", "guarn", "side", "guarnicion", "papas"],
+  drinks: ["bebida", "gaseosa", "refresco", "drink", "agua"],
 };
 
 export default function ComboSheet({
@@ -42,9 +38,10 @@ export default function ComboSheet({
   onConfirm,
   absolute,
   fallbackImg,
-  formatPEN,
 }) {
   const { menu, categories, apiBase } = useMenuPublic();
+  
+  // Memoizar la función absolute para evitar recreaciones
   const abs = useMemo(() => (u) => (absolute ? absolute(u) : makeAbs(apiBase, u)), [absolute, apiBase]);
 
   const entradas = useMemo(() => combo?.entradas ?? [], [combo]);
@@ -52,386 +49,329 @@ export default function ComboSheet({
 
   const [entradaId, setEntradaId] = useState(null);
   const [platoId, setPlatoId] = useState(null);
+  const [selectedExtras, setSelectedExtras] = useState({}); // { id: cantidad }
 
-  // ===== lista global segura =====
-  const menuAll = useMemo(() => {
-    if (Array.isArray(menu) && menu.length) return menu;
-    if (Array.isArray(categories) && categories.length) {
-      const out = [];
-      for (const c of categories) {
-        const arr = Array.isArray(c?.items) ? c.items : [];
-        for (const m of arr) out.push({ ...m, categoria_id: m?.categoria_id ?? c?.id ?? null });
-      }
-      return out;
+  // --- Lógica de agrupación de extras ---
+  const extraGroups = useMemo(() => {
+    // 1. Aplanar menú
+    let allItems = [];
+    if (Array.isArray(menu) && menu.length) allItems = menu;
+    else if (Array.isArray(categories)) {
+      categories.forEach(c => {
+        if (Array.isArray(c.items)) allItems.push(...c.items.map(i => ({...i, categoria_id: i.categoria_id || c.id})));
+      });
     }
-    return [];
-  }, [menu, categories]);
+    if (!allItems.length) return [];
 
-  // ===== recomendados =====
-  const grupos = useMemo(() => {
-    if (!Array.isArray(menuAll) || !Array.isArray(categories)) return [];
-    const findCatIds = (keywords) =>
-      new Set(categories.filter((c) => keywords.some((k) => norm(c?.nombre).includes(k))).map((c) => c.id));
-    const toOpt = (x) => ({ id: x.id, name: x.nombre, price: Number(x.precio || 0), image: x.imagen_url ? abs(x.imagen_url) : null });
-    const pick = (idSet) => menuAll.filter((m) => idSet.has(m.categoria_id) && m.activo !== false).map(toOpt);
+    // 2. Función de búsqueda
+    const getItemsByKeywords = (keys) => {
+        const catIds = new Set(categories.filter(c => keys.some(k => norm(c?.nombre).includes(k))).map(c => c.id));
+        return allItems
+            .filter(i => catIds.has(i.categoria_id) && i.activo !== false)
+            .map(i => ({
+                id: i.id,
+                name: i.nombre,
+                price: Number(i.precio || 0),
+                image: i.imagen_url ? abs(i.imagen_url) : null
+            }));
+    };
 
-    const extras = pick(findCatIds(KEYWORDS.extras));
-    const acomp  = pick(findCatIds(KEYWORDS.acomp));
-    const drinks = pick(findCatIds(KEYWORDS.drinks));
+    const gExtras = getItemsByKeywords(KEYWORDS.extras);
+    const gAcomp = getItemsByKeywords(KEYWORDS.acomp);
+    const gDrinks = getItemsByKeywords(KEYWORDS.drinks);
 
-    const out = [];
-    if (extras.length) out.push({ key: "extras", title: "Elige tus Toppings Extras", max: 10, items: extras });
-    if (acomp.length)  out.push({ key: "acomps", title: "Acompañamientos recomendados", max: 10, items: acomp });
-    if (drinks.length) out.push({ key: "drinks", title: "Bebidas recomendadas", max: 10, items: drinks });
-    return out;
-  }, [menuAll, categories, abs]);
+    const groups = [];
+    if (gExtras.length) groups.push({ key: "extras", title: "Toppings Extras", max: 5, items: gExtras });
+    if (gAcomp.length)  groups.push({ key: "acomps", title: "Acompañamientos", max: 5, items: gAcomp });
+    if (gDrinks.length) groups.push({ key: "drinks", title: "Bebidas", max: 10, items: gDrinks });
+    
+    return groups;
+  }, [menu, categories, abs]);
 
-  const [selected, setSelected] = useState({});
-  const toggleAdd = (id, delta, max = 99) => {
-    setSelected((prev) => {
-      const v = Math.max(0, Math.min(max, (prev[id] || 0) + delta));
-      const next = { ...prev, [id]: v };
-      if (next[id] === 0) delete next[id];
-      return next;
+  // --- Manejadores ---
+  const toggleExtra = (id, delta, max = 99) => {
+    setSelectedExtras((prev) => {
+      const current = prev[id] || 0;
+      const next = Math.max(0, Math.min(max, current + delta));
+      if (next === 0) {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [id]: next };
     });
   };
 
-  const priceStr = (formatPEN ? formatPEN(combo?.precio) : currency(combo?.precio));
+  // --- Cálculos de Precio ---
   const comboPrice = Number(combo?.precio || 0);
-
   const extrasTotal = useMemo(() => {
-    const priceMap = new Map();
-    grupos.forEach((g) => g.items.forEach((i) => priceMap.set(i.id, i.price)));
-    return Object.entries(selected).reduce((s, [id, c]) => s + (priceMap.get(Number(id)) || 0) * c, 0);
-  }, [selected, grupos]);
+    let total = 0;
+    extraGroups.forEach(g => {
+        g.items.forEach(item => {
+            if (selectedExtras[item.id]) total += item.price * selectedExtras[item.id];
+        });
+    });
+    return total;
+  }, [selectedExtras, extraGroups]);
 
   const grandTotal = comboPrice + extrasTotal;
 
+  // --- Efectos ---
   useEffect(() => {
-    if (!open) { setEntradaId(null); setPlatoId(null); setSelected({}); return; }
-    if (entradas.length === 1) setEntradaId(entradas[0].id);
-    if (platos.length === 1) setPlatoId(platos[0].id);
+    if (!open) {
+      setEntradaId(null);
+      setPlatoId(null);
+      setSelectedExtras({});
+      document.body.style.overflow = ""; // Restaurar scroll body
+    } else {
+      document.body.style.overflow = "hidden"; // Bloquear scroll body
+      // Auto-seleccionar si solo hay 1 opción
+      if (entradas.length === 1) setEntradaId(entradas[0].id);
+      if (platos.length === 1) setPlatoId(platos[0].id);
+    }
+    return () => { document.body.style.overflow = ""; };
   }, [open, entradas, platos]);
 
-  if (!open || !combo) return null;
-
-  const entrada = useMemo(() => entradas.find((e) => e.id === entradaId) || null, [entradas, entradaId]);
-  const plato   = useMemo(() => platos.find((p) => p.id === platoId) || null, [platos, platoId]);
-
+  const entrada = entradas.find((e) => e.id === entradaId);
+  const plato   = platos.find((p) => p.id === platoId);
   const canConfirm = Boolean(entrada && plato);
 
-  const addExtrasAfterConfirm = () => {
-    const all = grupos.flatMap((g) => g.items);
-    Object.entries(selected).forEach(([id, c]) => {
-      const opt = all.find((x) => x.id === Number(id));
-      if (!opt || c <= 0) return;
-      const fake = { id: opt.id, nombre: opt.name, precio: opt.price, imagen_url: null };
-      for (let i = 0; i < c; i++) {
-        window.dispatchEvent(new CustomEvent("cart:add", { detail: { item: fake } }));
-      }
+  const handleConfirm = () => {
+    if (!canConfirm) return;
+    
+    // 1. Confirmar Combo principal
+    onConfirm(entrada, plato);
+
+    // 2. Agregar extras (Simulando eventos de carrito)
+    const allExtras = extraGroups.flatMap(g => g.items);
+    Object.entries(selectedExtras).forEach(([id, qty]) => {
+        const itemData = allExtras.find(x => x.id === Number(id));
+        if (itemData && qty > 0) {
+            for (let i = 0; i < qty; i++) {
+                const fakeItem = { 
+                    id: itemData.id, 
+                    nombre: itemData.name, 
+                    precio: itemData.price, 
+                    imagen_url: null // No necesitamos imagen en el carrito minimizado
+                };
+                window.dispatchEvent(new CustomEvent("cart:add", { detail: { item: fakeItem } }));
+            }
+        }
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
+  if (!open || !combo) return null;
 
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+      {/* Backdrop (Fondo oscuro) */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-300" 
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Sheet (Contenedor Principal) */}
       <div
         className="
-          absolute inset-x-0 bottom-0 max-h-[90vh] overflow-hidden
-          rounded-t-3xl border border-white/10 bg-white/90 backdrop-blur-xl
-          shadow-[0_-24px_64px_-12px_rgba(0,0,0,.28)]
-          translate-y-0 animate-fadeInUp
+          relative w-full max-w-2xl overflow-hidden bg-white shadow-2xl 
+          animate-in slide-in-from-bottom-10 duration-300
+          rounded-t-[2rem] sm:rounded-[2rem] max-h-[92vh] flex flex-col
         "
         role="dialog"
         aria-modal="true"
-        aria-labelledby="combo-title"
       >
-        {/* Handle */}
-        <div className="flex justify-center pt-2">
-          <div className="h-1.5 w-12 rounded-full bg-neutral-300/80" />
-        </div>
-
-        {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-black/5 px-4 py-3 sm:px-6 sm:py-4 bg-gradient-to-t from-white/70 to-white/30 backdrop-blur-xl">
-          <div className="min-w-0">
-            <div className="text-[12px] text-neutral-500">Combo</div>
-            <h3 id="combo-title" className="text-base sm:text-lg font-semibold tracking-tight text-neutral-900 line-clamp-1">
-              {combo.nombre} <span className="text-neutral-400">·</span>{" "}
-              <span className="text-emerald-700">{priceStr}</span>
-            </h3>
+        
+        {/* 1. HEADER STICKY */}
+        <header className="relative z-10 flex shrink-0 items-center justify-between border-b border-gray-100 bg-white/80 px-6 py-4 backdrop-blur-md">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Configura tu menú</p>
+            <h2 className="text-xl font-bold text-gray-900 line-clamp-1">{combo.nombre}</h2>
           </div>
           <button
-            type="button"
             onClick={onClose}
-            aria-label="Cerrar"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 bg-white/80 text-neutral-700 hover:bg-neutral-50"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200 hover:text-gray-800"
           >
-            <Close className="h-5 w-5" />
+            <IconClose className="h-5 w-5" />
           </button>
-        </div>
+        </header>
 
-        {/* Content */}
-        <div className="min-h-0 overflow-y-auto px-4 pb-28 pt-4 sm:px-6">
-          <div className="mx-auto max-w-6xl">
-            <div className="grid gap-6 md:grid-cols-[1fr_1fr_0.9fr]">
-              {/* Entradas */}
-              <section aria-labelledby="label-entrada">
-                <header className="mb-2 flex items-center gap-2">
-                  <Leaf className="h-4 w-4 text-emerald-600" />
-                  <h4 id="label-entrada" className="text-sm font-medium text-neutral-900">Elige una entrada</h4>
-                </header>
-                <RadioGrid
-                  labelId="label-entrada"
-                  items={entradas}
-                  selectedId={entradaId}
-                  setSelectedId={setEntradaId}
-                  absolute={abs}
-                  fallbackImg={fallbackImg || FALLBACK_IMG}
-                />
-              </section>
+        {/* 2. CONTENIDO SCROLLEABLE */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="space-y-8">
+            
+            {/* SECCIÓN: ENTRADAS */}
+            <section>
+              <div className="mb-3 flex items-center gap-2 text-emerald-700">
+                <IconLeaf className="h-5 w-5" />
+                <h3 className="text-sm font-bold uppercase tracking-wide">1. Elige tu Entrada</h3>
+              </div>
+              <SelectionGrid 
+                items={entradas} 
+                selectedId={entradaId} 
+                onSelect={setEntradaId} 
+                abs={abs} 
+                fallback={fallbackImg}
+              />
+            </section>
 
-              {/* Platos */}
-              <section aria-labelledby="label-plato">
-                <header className="mb-2 flex items-center gap-2">
-                  <Bowl className="h-4 w-4 text-emerald-600" />
-                  <h4 id="label-plato" className="text-sm font-medium text-neutral-900">Elige un plato</h4>
-                </header>
-                <RadioGrid
-                  labelId="label-plato"
-                  items={platos}
-                  selectedId={platoId}
-                  setSelectedId={setPlatoId}
-                  absolute={abs}
-                  fallbackImg={fallbackImg || FALLBACK_IMG}
-                />
-              </section>
+            {/* SECCIÓN: PLATOS */}
+            <section>
+              <div className="mb-3 flex items-center gap-2 text-orange-600">
+                <IconBowl className="h-5 w-5" />
+                <h3 className="text-sm font-bold uppercase tracking-wide">2. Elige tu Plato de Fondo</h3>
+              </div>
+              <SelectionGrid 
+                items={platos} 
+                selectedId={platoId} 
+                onSelect={setPlatoId} 
+                abs={abs} 
+                fallback={fallbackImg}
+              />
+            </section>
 
-              {/* Preview */}
-              <aside className="hidden md:block">
-                <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-                  <div className="mb-2 text-sm font-medium text-neutral-900">Tu selección</div>
-                  <PreviewRow
-                    label="Entrada"
-                    value={entrada?.nombre}
-                    img={entrada ? (abs(entrada.imagen_url) || FALLBACK_IMG) : null}
-                  />
-                  <PreviewRow
-                    label="Plato"
-                    value={plato?.nombre}
-                    img={plato ? (abs(plato.imagen_url) || FALLBACK_IMG) : null}
-                  />
-                  <div className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-neutral-600">Total combo</span>
-                      <span className="font-semibold text-neutral-900">{priceStr}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-neutral-500">Incluye 1 entrada + 1 plato.</div>
-                  </div>
-                </div>
-              </aside>
-            </div>
+            {/* SECCIÓN: EXTRAS (Si existen) */}
+            {extraGroups.length > 0 && (
+              <div className="mt-8 border-t border-dashed border-gray-200 pt-6">
+                <h3 className="mb-4 text-lg font-semibold text-gray-900">¿Deseas agregar algo más?</h3>
+                <div className="space-y-6">
+                  {extraGroups.map(group => (
+                    <div key={group.key}>
+                      <h4 className="mb-3 text-sm font-medium text-gray-500">{group.title}</h4>
+                      <div className="divide-y divide-gray-100 rounded-2xl border border-gray-100 bg-gray-50/50">
+                        {group.items.map(item => (
+                          <div key={item.id} className="flex items-center gap-4 p-3">
+                            {/* Imagen pequeña */}
+                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm">
+                                <img 
+                                    src={item.image || fallbackImg || FALLBACK_IMG} 
+                                    alt="" 
+                                    className="h-full w-full object-cover"
+                                    onError={(e) => (e.currentTarget.src = fallbackImg || FALLBACK_IMG)}
+                                />
+                            </div>
+                            
+                            {/* Info */}
+                            <div className="flex-1">
+                                <div className="font-medium text-gray-900">{item.name}</div>
+                                <div className="text-xs font-medium text-emerald-600">+{currency(item.price)}</div>
+                            </div>
 
-            {/* Recomendados */}
-            {grupos.length > 0 && (
-              <section className="mt-6">
-                {grupos.map((g) => {
-                  const totalSel = Object.values(selected).reduce((a, b) => a + b, 0);
-                  return (
-                    <div key={g.key} className="mt-6 first:mt-0">
-                      <div className="mb-2">
-                        <div className="text-[13px] font-semibold tracking-wide text-neutral-900">{g.title}</div>
-                        <div className="text-[12px] text-neutral-500">Elige máximo {g.max} opciones.</div>
-                      </div>
-                      <ul className="divide-y rounded-2xl border bg-white/70 ring-1 ring-black/5">
-                        {g.items.map((opt) => {
-                          const count = selected[opt.id] || 0;
-                          return (
-                            <li key={opt.id} className="flex items-center gap-3 px-3 py-2.5">
-                              <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg ring-1 ring-black/10">
-                                {opt.image ? (
-                                  <img src={opt.image} alt="" className="h-full w-full object-cover" />
-                                ) : (
-                                  <div className="grid h-full w-full place-items-center text-[11px] text-neutral-400">IMG</div>
-                                )}
-                              </div>
-                              <div className="flex-1">
-                                <div className="text-[14px] font-medium text-neutral-900">{opt.name}</div>
-                                <div className="text-[12px] text-neutral-600">+ {currency(opt.price)}</div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => toggleAdd(opt.id, -1)} className="h-8 w-8 rounded-full border text-lg leading-none text-neutral-700 hover:bg-neutral-50">−</button>
-                                <div className="w-5 text-center text-sm tabular-nums">{count}</div>
-                                <button
-                                  type="button"
-                                  onClick={() => { if (totalSel >= g.max) return; toggleAdd(opt.id, +1); }}
-                                  className="h-8 w-8 rounded-full bg-emerald-600 text-lg leading-none text-white hover:bg-emerald-500"
+                            {/* Stepper (+/-) */}
+                            <div className="flex items-center gap-3 rounded-full bg-white px-2 py-1 shadow-sm ring-1 ring-gray-200">
+                                <button 
+                                    onClick={() => toggleExtra(item.id, -1)}
+                                    className={`h-7 w-7 flex items-center justify-center rounded-full transition ${selectedExtras[item.id] ? 'text-red-500 hover:bg-red-50' : 'text-gray-300'}`}
                                 >
-                                  +
+                                    -
                                 </button>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                                <span className="w-4 text-center text-sm font-semibold tabular-nums">
+                                    {selectedExtras[item.id] || 0}
+                                </span>
+                                <button 
+                                    onClick={() => toggleExtra(item.id, 1, group.max)}
+                                    className="h-7 w-7 flex items-center justify-center rounded-full text-emerald-600 hover:bg-emerald-50 active:scale-90 transition"
+                                >
+                                    +
+                                </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  );
-                })}
-              </section>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Sticky footer */}
-        <div className="pointer-events-auto fixed inset-x-0 bottom-0 z-20 bg-gradient-to-b from-transparent to-white/85">
-          <div className="mx-auto max-w-6xl px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
-            <div className="mb-2 h-[1px] w-full bg-gradient-to-r from-transparent via-black/10 to-transparent" />
-            <div className="flex items-center justify-between rounded-2xl border bg-white/90 px-3 py-2.5 shadow-sm ring-1 ring-black/5 sm:px-4">
-              <div className="min-w-0">
-                <div className="text-[12px] text-neutral-500">Total</div>
-                <div className="text-[15px] font-bold tracking-tight text-neutral-900">
-                  {currency(grandTotal)}
+        {/* 3. FOOTER ACTIONS */}
+        <div className="shrink-0 border-t border-gray-100 bg-white p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+          <div className="mx-auto flex max-w-lg flex-col gap-3 sm:flex-row sm:items-center">
+             {/* Resumen de precios */}
+             <div className="flex flex-1 flex-col px-2">
+                <div className="flex items-baseline justify-between sm:justify-start sm:gap-4">
+                    <span className="text-sm text-gray-500">Total a pagar</span>
+                    <span className="text-xl font-extrabold text-gray-900">{currency(grandTotal)}</span>
                 </div>
                 {extrasTotal > 0 && (
-                  <div className="text-[11px] text-neutral-500">
-                    (Combo {currency(comboPrice)} + Recomendados {currency(extrasTotal)})
-                  </div>
+                    <div className="text-xs text-gray-400">
+                        Base {currency(comboPrice)} + Extras {currency(extrasTotal)}
+                    </div>
                 )}
-              </div>
+             </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="inline-flex h-11 items-center rounded-xl border border-neutral-300 bg-white px-4
-                             text-[14px] font-medium text-neutral-800 hover:bg-neutral-50 active:translate-y-[1px] transition"
+             {/* Botones */}
+             <div className="flex gap-3">
+                <button 
+                    onClick={onClose}
+                    className="h-12 rounded-xl border border-gray-200 px-6 font-medium text-gray-600 transition hover:bg-gray-50"
                 >
-                  Cancelar
+                    Cancelar
                 </button>
-
                 <button
-                  type="button"
-                  disabled={!canConfirm}
-                  onClick={() => {
-                    if (!canConfirm) return;
-                    onConfirm(entrada, plato);
-                    addExtrasAfterConfirm();
-                  }}
-                  className="inline-flex h-11 items-center justify-center rounded-xl
-                             bg-gradient-to-t from-emerald-600 to-emerald-500 px-5
-                             text-[15px] font-semibold text-white shadow-sm ring-1 ring-emerald-700/20
-                             transition hover:from-emerald-500 hover:to-emerald-400
-                             active:translate-y-[1px] disabled:opacity-60 disabled:grayscale"
+                    onClick={handleConfirm}
+                    disabled={!canConfirm}
+                    className={`
+                        h-12 rounded-xl px-8 font-bold text-white shadow-lg shadow-emerald-500/20 transition-all
+                        ${canConfirm 
+                            ? 'bg-emerald-600 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95' 
+                            : 'bg-gray-300 cursor-not-allowed'}
+                    `}
                 >
-                  Agregar combo
+                    {canConfirm ? 'Agregar al Pedido' : 'Completa la selección'}
                 </button>
-              </div>
-            </div>
+             </div>
           </div>
         </div>
-      </div>{/* sheet */}
-    </div>
-  );
-}
 
-/* ======= Subcomponentes ======= */
-function RadioGrid({ labelId, items, selectedId, setSelectedId, absolute, fallbackImg }) {
-  const groupRef = useRef(null);
-
-  const handleKey = (e) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
-    e.preventDefault();
-    if (!items.length) return;
-    const idx = Math.max(0, items.findIndex((x) => x.id === selectedId));
-    const delta = (e.key === "ArrowRight" || e.key === "ArrowDown") ? 1 : -1;
-    const next = (idx + delta + items.length) % items.length;
-    setSelectedId(items[next].id);
-    const btns = groupRef.current?.querySelectorAll("[role='radio']");
-    btns?.[next]?.focus();
-  };
-
-  return (
-    <div
-      ref={groupRef}
-      role="radiogroup"
-      aria-labelledby={labelId}
-      className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-      onKeyDown={handleKey}
-    >
-      {items.map((it, i) => (
-        <OptionTile
-          key={it.id}
-          selected={selectedId === it.id}
-          title={it.nombre}
-          img={(absolute && absolute(it.imagen_url)) || fallbackImg || FALLBACK_IMG}
-          onSelect={() => setSelectedId(it.id)}
-          tabIndex={selectedId === it.id || (selectedId == null && i === 0) ? 0 : -1}
-        />
-      ))}
-    </div>
-  );
-}
-
-function OptionTile({ selected, title, img, onSelect, tabIndex = 0 }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onSelect}
-      tabIndex={tabIndex}
-      className={`
-        group relative overflow-hidden rounded-2xl bg-white text-left shadow-sm transition focus:outline-none
-        ${selected
-          ? "ring-2 ring-emerald-500"
-          : "ring-1 ring-neutral-200/70 hover:ring-neutral-300 hover:shadow-md hover:-translate-y-[1px]"}
-      `}
-    >
-      <div className="relative aspect-[4/3] w-full">
-        {img ? (
-          <img
-            src={img}
-            alt={title}
-            loading="lazy"
-            decoding="async"
-            className="absolute inset-0 h-full w-full object-cover transition duration-300"
-            onError={(e) => (e.currentTarget.style.display = "none")}
-          />
-        ) : (
-          <div className="absolute inset-0 bg-neutral-100" />
-        )}
-        {selected && (
-          <div className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 text-emerald-600 shadow-sm">
-            <Check className="h-4 w-4" />
-          </div>
-        )}
       </div>
-      <div className="p-2.5">
-        <div className="line-clamp-1 text-[13px] font-semibold text-neutral-900">{title}</div>
-      </div>
-    </button>
+    </div>
   );
 }
 
-function PreviewRow({ label, value, img }) {
-  return (
-    <div className="mb-2 flex items-center gap-3 rounded-xl border bg-white/85 p-2.5 ring-1 ring-black/5">
-      <div className="min-w-[64px] text-[12px] font-medium text-neutral-600">{label}</div>
-      {value ? (
-        <>
-          {img && (
-            <img
-              src={img}
-              alt={value}
-              className="h-9 w-12 rounded-md object-cover"
-              onError={(e) => (e.currentTarget.style.display = "none")}
-            />
-          )}
-          <div className="line-clamp-1 text-[13px] text-neutral-900">{value}</div>
-        </>
-      ) : (
-        <div className="text-[13px] text-neutral-400">Sin seleccionar</div>
-      )}
-    </div>
-  );
+/* --- SUBCOMPONENTE GRID --- */
+function SelectionGrid({ items, selectedId, onSelect, abs, fallback }) {
+    return (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            {items.map((item) => {
+                const isSelected = selectedId === item.id;
+                return (
+                    <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onSelect(item.id)}
+                        className={`
+                            group relative overflow-hidden rounded-2xl border text-left transition-all duration-200
+                            ${isSelected 
+                                ? 'border-emerald-500 bg-emerald-50/30 ring-2 ring-emerald-500/20' 
+                                : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'}
+                        `}
+                    >
+                        {/* Badge de Check */}
+                        {isSelected && (
+                            <div className="absolute right-2 top-2 z-10 rounded-full bg-emerald-500 p-1 text-white shadow-sm animate-in zoom-in-50">
+                                <IconCheck className="h-3 w-3" />
+                            </div>
+                        )}
+
+                        <div className="aspect-[4/3] w-full overflow-hidden bg-gray-100">
+                            <img 
+                                src={abs(item.imagen_url) || fallback || FALLBACK_IMG}
+                                alt={item.nombre}
+                                loading="lazy"
+                                className={`h-full w-full object-cover transition duration-500 ${isSelected ? 'scale-105' : 'group-hover:scale-105'}`}
+                                onError={(e) => (e.currentTarget.src = fallback || FALLBACK_IMG)}
+                            />
+                        </div>
+                        <div className="p-3">
+                            <p className={`line-clamp-2 text-sm font-medium ${isSelected ? 'text-emerald-900' : 'text-gray-700'}`}>
+                                {item.nombre}
+                            </p>
+                        </div>
+                    </button>
+                );
+            })}
+        </div>
+    );
 }

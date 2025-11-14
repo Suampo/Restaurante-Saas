@@ -1,11 +1,15 @@
+// src/components/CategoryTile.jsx
 import React, { memo, useMemo, useState, useId } from "react";
 
 /**
- * CategoryTile
  * Props:
  * - title, subtitle, image, fallback, onClick
  * - variant: "landscape" | "square"
  * - badge?: string, count?: number, disabled?: boolean
+ * - align?: "left" | "center"
+ * - showChevron?: boolean
+ * - optimizeImages?: boolean (default true)
+ * - priority?: boolean (si true → fetchpriority="high")
  */
 function CategoryTile({
   title,
@@ -17,11 +21,66 @@ function CategoryTile({
   badge,
   count,
   disabled = false,
+  align = "left",
+  showChevron = true,
+  optimizeImages = true,
+  priority = false,
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  const API_BASE =
+    import.meta.env.VITE_API_PEDIDOS ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:4000";
+
+  const isAbs = (u = "") =>
+    /^https?:\/\//i.test(u) || u.startsWith("data:") || u.startsWith("blob:");
+  const toAbs = (u = "") =>
+    isAbs(u) ? u : `${API_BASE}${u?.startsWith("/") ? "" : "/"}${u || ""}`;
+
+  // ¿Conviene proxear esta URL?
+  const shouldProxy = (u = "") =>
+    /^https?:\/\//i.test(u) && !u.includes("/img?"); // solo http(s) y sin doble proxy
+
+  // Genera URL del proxy /img
+  const imgFit = (url, w, q = 70, fmt = "webp") => {
+    const abs = toAbs(url);
+    if (!shouldProxy(abs)) return abs; // data:, blob:, etc → no proxear
+    const u = new URL(`${API_BASE}/img`);
+    u.searchParams.set("url", abs);
+    u.searchParams.set("width", String(w));
+    u.searchParams.set("q", String(q));
+    u.searchParams.set("fmt", fmt);
+    return u.toString();
+  };
+
+  const original = useMemo(
+    () => (failed ? fallback : image || fallback),
+    [image, fallback, failed]
+  );
+
+  const widths = variant === "square" ? [160, 200, 240, 320] : [192, 216, 240, 320, 384];
+  const sizes  =
+    variant === "square"
+      ? "(max-width: 480px) 160px, (max-width: 640px) 200px, (max-width: 768px) 240px, 320px"
+      : "(max-width: 480px) 192px, (max-width: 640px) 216px, (max-width: 768px) 240px, 320px";
+
+  // reservar espacio (reduce CLS)
+  const logicalW = 240;
+  const logicalH = variant === "square" ? 240 : 180; // 4:3
+
+  const useProxy = optimizeImages && shouldProxy(original);
+  const src = useMemo(
+    () => (useProxy ? imgFit(original, logicalW) : toAbs(original)),
+    [original, useProxy]
+  );
+  const srcSet = useMemo(() => {
+    if (!useProxy) return undefined;
+    return widths.map((w) => `${imgFit(original, w)} ${w}w`).join(", ");
+  }, [original, useProxy]);
+
   const alt = title || "Imagen";
-  const src = useMemo(() => (!failed ? image || fallback : fallback), [image, fallback, failed]);
   const ratio = variant === "square" ? "aspect-square" : "aspect-[4/3]";
   const titleId = useId();
   const subId = useId();
@@ -33,6 +92,13 @@ function CategoryTile({
       onClick?.();
     }
   };
+
+  const alignBox   = align === "center" ? "items-center text-center" : "items-start text-left";
+  const titleClamp = align === "center" ? "" : "line-clamp-1";
+  const subClamp   = align === "center" ? "hidden sm:block line-clamp-1 mt-0.5" : "line-clamp-1";
+
+  // 👇 React no reconoce fetchPriority en camelCase. Usar minúsculas o no pasarlo.
+  const priorityAttrs = priority ? { fetchpriority: "high" } : {};
 
   return (
     <div
@@ -58,16 +124,24 @@ function CategoryTile({
         {src ? (
           <img
             src={src}
+            srcSet={srcSet}
+            sizes={srcSet ? sizes : undefined}
+            width={logicalW}
+            height={logicalH}
             alt={alt}
-            loading="lazy"
+            loading={priority ? "eager" : "lazy"}
             decoding="async"
+            {...priorityAttrs}
             className={[
               "absolute inset-0 h-full w-full object-cover hover-zoom-img",
               "transition duration-500 ease-out",
               loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-[1.02] blur-sm",
             ].join(" ")}
             onLoad={() => setLoaded(true)}
-            onError={() => { setFailed(true); setLoaded(true); }}
+            onError={() => {
+              setFailed(true);
+              setLoaded(true);
+            }}
             draggable={false}
           />
         ) : (
@@ -101,23 +175,30 @@ function CategoryTile({
         disabled={disabled}
         onClick={onClick}
         onKeyDown={handleKey}
-        className={["flex w-full items-start gap-2 p-3 text-left outline-none", disabled ? "cursor-not-allowed" : "cursor-pointer"].join(" ")}
+        className={[
+          "flex w-full gap-2 p-3 text-[15px] outline-none",
+          alignBox,
+          disabled ? "cursor-not-allowed" : "cursor-pointer",
+          "min-h-[58px]",
+        ].join(" ")}
       >
         <div className="min-w-0 flex-1">
-          <div id={titleId} className="line-clamp-1 text-[15px] font-semibold text-neutral-900">
+          <div id={titleId} className={`${titleClamp} font-semibold text-neutral-900`}>
             {title}
           </div>
           {subtitle ? (
-            <div id={subId} className="line-clamp-1 text-xs text-neutral-500">
+            <div id={subId} className={`${subClamp} text-xs text-neutral-500`}>
               {subtitle}
             </div>
           ) : null}
         </div>
 
-        <ChevronRight
-          className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-neutral-600"
-          aria-hidden="true"
-        />
+        {showChevron && (
+          <ChevronRight
+            className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-neutral-600"
+            aria-hidden="true"
+          />
+        )}
       </button>
     </div>
   );

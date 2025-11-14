@@ -73,24 +73,40 @@ const MP_BINARY_MODE =
   /^(1|true)$/i.test(process.env.MP_BINARY_MODE || "");
 
 /* ====== Notificación a backend-facturación ====== */
-async function notifyPaid({ pedidoId, amount, paymentId, method, status }) {
+async function notifyPaid({ pedidoId, payment }) {
   const { factBaseUrl, factApiUrl } = getURLs();
   const base = (factBaseUrl || factApiUrl || '').replace(/\/+$/, '');
   if (!base) return;
+
   const url = `${base}/api/pedidos/${Number(pedidoId)}/pagado`;
+
+  // Campos tomados del Payment de MP
+  const eventId   = String(payment?.id || '');
+  const chargeId  = String(payment?.id || '');
+  const orderId   = payment?.order?.id ?? payment?.merchant_order_id ?? null;
+  const approved  = payment?.date_approved || null;
+
   try {
     await axios.post(url, {
-      amount: Number(amount),
-      pasarela: 'mercado_pago',
-      payment_id: String(paymentId),
-      method: method || 'mp',
-      status: status || 'approved',
+      amount        : Number(payment?.transaction_amount || 0),
+      pasarela      : 'mercado_pago',
+      payment_id    : eventId,                        // compat
+      method        : payment?.payment_method_id || 'mp',
+      status        : payment?.status || null,
+
+      // NUEVO: claves de reconciliación
+      psp_event_id  : eventId,                        // id del Payment
+      psp_charge_id : chargeId,                       // igual al Payment.id
+      psp_order_id  : orderId ? String(orderId) : null,
+      approved_at   : approved,                       // timestamp de MP si lo trae
+
+      // por si luego quieres auditar todo
+      mp_snapshot   : payment
     }, { timeout: 20000, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
     console.warn('[notifyPaid] fallo:', e?.response?.status, e?.message);
   }
 }
-
 /* ===== Rutas ===== */
 
 /* -- Preferencias (Wallet/Checkout Pro) -- 
@@ -166,6 +182,7 @@ async function setPedidoSunatEstado(pedidoId, estado) {
   }
 }
 
+// -- Webhook Mercado Pago --
 router.post(['/psp/mp/webhook', '/webhooks/mp'], async (req, res) => {
   try {
     const payload = req.body || {};
@@ -178,8 +195,9 @@ router.post(['/psp/mp/webhook', '/webhooks/mp'], async (req, res) => {
       const mp = await getMPForRestaurant(restaurantIdHint || 0);
       const payment = await new Payment(mp).get({ id: dataId });
 
-      const pedidoId = payment?.metadata?.pedidoId
-        ?? (payment?.external_reference ? Number(payment.external_reference) : null);
+      const pedidoId =
+        payment?.metadata?.pedidoId ??
+        (payment?.external_reference ? Number(payment.external_reference) : null);
 
       const orderId = payment?.order?.id ?? payment?.merchant_order_id ?? null;
 
@@ -193,20 +211,8 @@ router.post(['/psp/mp/webhook', '/webhooks/mp'], async (req, res) => {
         restaurantIdHint
       });
 
-      if (pedidoId && payment.status !== 'approved') {
-        await setPedidoSunatEstado(pedidoId, payment?.status_detail || payment?.status || 'pending');
-      }
-
       if (payment.status === 'approved' && pedidoId) {
-        await oncePerPayment(payment.id, () =>
-          notifyPaid({
-            pedidoId,
-            amount: payment.transaction_amount,
-            paymentId: payment.id,
-            method: payment.payment_method_id || 'mp',
-            status: payment.status,
-          })
-        );
+        await oncePerPayment(payment.id, () => notifyPaid({ pedidoId, payment }));
       }
     }
     return res.sendStatus(200);

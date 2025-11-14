@@ -14,19 +14,21 @@ router.get("/psp/mp/public-key", async (req, res) => {
 
     const { data, error } = await supa
       .from("psp_credentials")
-      .select("public_key, provider")
+      .select("public_key, provider, active")
       .eq("restaurant_id", restaurantId)
       .eq("provider", "mercadopago")
+      .eq("active", true)
       .order("id", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (error) return res.status(500).json({ error: "Error consultando Supabase" });
-    if (!data) return res.status(404).json({ error: "No hay credencial activa de MP" });
 
-    const pk = (data?.public_key || "").trim();
+    let pk = (data?.public_key || "").trim();
+    // Fallback opcional solo para diagnóstico local
+    if (!pk) pk = (process.env.MP_PUBLIC_KEY || "").trim();
+
     if (!pk) return res.status(404).json({ error: "No hay public_key de MP para ese restaurante" });
-
     return res.json({ publicKey: pk });
   } catch {
     return res.status(500).json({ error: "Error interno" });

@@ -1,11 +1,15 @@
 // src/pages/CobroEfectivo.jsx
 import { useState, useEffect } from "react";
-import { getSaldo, crearPagoEfectivo, aprobarPagoEfectivo } from "../services/cashApi";
+import { getSaldo, crearPagoEfectivo, aprobarPagoEfectivo, ensureMozoSession } from "../services/cashApi";
 import {
   Search, Loader2, Wallet, ReceiptText, KeyRound, CheckCircle2, AlertCircle, Printer, Eraser
 } from "lucide-react";
 
 const PEN = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", minimumFractionDigits: 2 });
+
+// Defaults para auto-login de mozo (ajusta a tu gusto)
+const RESTAURANT_ID_DEFAULT = Number(localStorage.getItem("restaurant_id") || 1);
+const PIN_DEFAULT = import.meta.env.VITE_WAITER_PIN || "1234";
 
 export default function CobroEfectivo() {
   // ======= State =======
@@ -29,7 +33,6 @@ export default function CobroEfectivo() {
 
   // ======= Helpers =======
   const parseMoney = (v) => {
-    // Permite solo números y un punto, máximo 2 decimales
     const cleaned = (v || "").replace(/,/g, ".").replace(/[^\d.]/g, "");
     const parts = cleaned.split(".");
     if (parts.length > 2) return parts[0] + "." + parts.slice(1).join("");
@@ -52,6 +55,13 @@ export default function CobroEfectivo() {
     return <span className={`${base} bg-zinc-100 text-zinc-700`}>{String(status).toUpperCase()}</span>;
   };
 
+  // Pequeño helper para garantizar sesión :5000 antes de pegarle a /api/split/*
+  const ensureSession = async () => {
+    const rid = Number(localStorage.getItem("restaurant_id") || RESTAURANT_ID_DEFAULT || 1);
+    const pinToUse = PIN_DEFAULT;      // si quieres, usa 'pin' ingresado por UI
+    await ensureMozoSession({ restaurantId: rid, pin: pinToUse });
+  };
+
   // ======= Actions =======
   const fetchSaldo = async () => {
     if (!pedidoId) return;
@@ -62,9 +72,12 @@ export default function CobroEfectivo() {
 
     setLoadingSaldo(true);
     try {
+      // 1) Asegura login de mozo
+      await ensureSession();
+
+      // 2) Ya con JWT + CSRF, pide el saldo
       const data = await getSaldo(pedidoId);
       setSaldo(data);
-      // sugerir "amount" = pendiente
       setAmount(String(Number(data.pendiente || 0).toFixed(2)));
     } catch (e) {
       setSaldo(null);
@@ -86,6 +99,10 @@ export default function CobroEfectivo() {
       }
 
       setCreating(true);
+
+      // Asegura sesión antes de POST
+      await ensureSession();
+
       const data = await crearPagoEfectivo(pedidoId, { amount: a, received: r, note });
       setPagoId(data.pagoId);
       setShowPinModal(true);
@@ -102,12 +119,15 @@ export default function CobroEfectivo() {
       if (!pin || pin.length < 4) return setErrorMsg("PIN inválido (mínimo 4 dígitos)");
 
       setApproving(true);
+
+      // Asegura sesión antes de POST aprobar
+      await ensureSession();
+
       const rcv = received !== "" ? Number(received || 0) : null;
       const data = await aprobarPagoEfectivo(pedidoId, pagoId, { pin, received: rcv, note });
       setResult(data);
       setShowPinModal(false);
 
-      // Datos para impresión
       setPrintable({
         pedidoId,
         total: saldo?.total ?? 0,
@@ -120,7 +140,7 @@ export default function CobroEfectivo() {
       setErrorMsg(e?.response?.data?.error || e.message || "No se pudo aprobar el pago");
     } finally {
       setApproving(false);
-      fetchSaldo(); // refresca para ver nuevo pendiente
+      fetchSaldo();
     }
   };
 
@@ -176,10 +196,7 @@ export default function CobroEfectivo() {
     const pid = q.get("pedido");
     if (pid) {
       setPedidoId(pid);
-      // espera a que setPedidoId actualice el state y luego busca
-      setTimeout(() => {
-        fetchSaldo();
-      }, 0);
+      setTimeout(() => { fetchSaldo(); }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -192,7 +209,6 @@ export default function CobroEfectivo() {
         <h1 className="text-xl font-semibold sm:text-2xl">Cobro en efectivo (Mozo)</h1>
       </div>
 
-      {/* Mensajes */}
       {errorMsg && (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
           {errorMsg}
@@ -208,7 +224,6 @@ export default function CobroEfectivo() {
         </div>
       )}
 
-      {/* Grid responsive: izquierda acciones / derecha resumen */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Columna izquierda */}
         <div className="space-y-4">
@@ -353,7 +368,6 @@ export default function CobroEfectivo() {
 
         {/* Columna derecha (resumen) */}
         <div className="space-y-4">
-          {/* Resumen del pedido */}
           <div className="rounded-2xl border bg-white shadow-sm">
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <KeyRound className="h-5 w-5 text-zinc-500" />
@@ -383,7 +397,6 @@ export default function CobroEfectivo() {
             </div>
           </div>
 
-          {/* Tips / Ayuda */}
           <div className="rounded-2xl border bg-white shadow-sm">
             <div className="border-b px-4 py-3 font-medium">Ayuda rápida</div>
             <div className="px-4 pb-4 pt-3 text-sm text-zinc-600 space-y-2">

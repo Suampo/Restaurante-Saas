@@ -110,7 +110,7 @@ export const crearPedido = async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 1) Mesa válida
+    // 1) Mesa válida (sin anular pedidos previos)
     const mesaQ = await client.query(
       `SELECT id, UPPER(codigo) AS codigo
          FROM public.mesas
@@ -120,20 +120,7 @@ export const crearPedido = async (req, res) => {
     );
     if (!mesaQ.rows.length) throw new Error("Mesa no válida");
 
-    // 1.1) SOLO si NO es LLEVAR: anula otros pedidos pendientes de esta mesa
-    const esLlevar = (mesaQ.rows[0].codigo || "") === "LLEVAR";
-    if (!esLlevar) {
-      await client.query(
-        `UPDATE public.pedidos p
-            SET estado = 'anulado', updated_at = NOW()
-          WHERE p.restaurant_id = $1
-            AND p.mesa_id = $2
-            AND p.estado = 'pendiente_pago'`,
-        [restaurantId, mesaId]
-      );
-    }
-
-    // 2) Inserta pedido idempotente (con facturación y nota)
+    // 2) Inserta pedido idempotente (NO se cancela nada existente)
     const ped = await client.query(
       `INSERT INTO public.pedidos (
          restaurant_id, mesa_id, total, estado, created_at, idempotency_key,
@@ -147,7 +134,7 @@ export const crearPedido = async (req, res) => {
     );
     const pedidoId = ped.rows[0].id;
 
-    // 3) Si ya hay detalle (reintento idempotente)
+    // 3) Idempotencia: si ya hay detalle, devolvemos el total existente
     const detCount = await client.query(
       `SELECT COUNT(*)::int AS c FROM public.pedido_detalle WHERE pedido_id = $1`,
       [pedidoId]
@@ -308,19 +295,8 @@ export const crearPedido = async (req, res) => {
   } catch (error) {
     await client.query("ROLLBACK");
 
+    // Solo idempotencia u otros UNIQUE reales (p.ej. (restaurant_id, idempotency_key))
     if (error?.code === "23505") {
-      if (error?.constraint === "uniq_open_order_per_table") {
-        const q = await pool.query(
-          `SELECT id FROM public.pedidos
-            WHERE restaurant_id=$1 AND mesa_id=$2 AND estado='pendiente_pago'
-            ORDER BY created_at DESC LIMIT 1`,
-          [getRestaurantIdLoose(req), req.body.mesaId]
-        );
-        const existing = q.rows[0]?.id;
-        return res
-          .status(409)
-          .json({ error: "La mesa ya tiene un pedido abierto", pedidoId: existing });
-      }
       return res.status(409).json({ error: "Conflicto de unicidad", detail: error.detail });
     }
 
@@ -330,6 +306,7 @@ export const crearPedido = async (req, res) => {
     client.release();
   }
 };
+
 /** ========================
  *  PATCH /api/pedidos/:id  (admin)
  *  ======================== */

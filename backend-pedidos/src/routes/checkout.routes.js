@@ -37,7 +37,7 @@ async function assertMesaIfDinein(req, res, next) {
  * POST /api/checkout/intents
  * Body:
  *   - dinein:   { restaurantId, mesaId, amount, cart[], note? , orderType: 'dinein' }
- *   - takeaway: { restaurantId, amount, cart[], note?, externalReference, orderType: 'takeaway' }
+ *   - takeaway: { restaurantId, amount, cart[], note?, orderType: 'takeaway' }
  */
 router.post("/intents", assertMesaIfDinein, async (req, res) => {
   try {
@@ -48,17 +48,12 @@ router.post("/intents", assertMesaIfDinein, async (req, res) => {
 
     const orderType = req.body.orderType === "takeaway" ? "takeaway" : "dinein";
     const mesaId = orderType === "dinein" ? Number(req.body.mesaId) : null;
-    const externalRef =
-      orderType === "takeaway" ? String(req.body.externalReference || "") : null;
 
     if (!rid || !amount || amount <= 0) {
       return res.status(400).json({ error: "Parámetros inválidos" });
     }
     if (orderType === "dinein" && !mesaId) {
       return res.status(400).json({ error: "mesaId requerido para dinein" });
-    }
-    if (orderType === "takeaway" && !externalRef) {
-      return res.status(400).json({ error: "externalReference requerido para takeaway" });
     }
 
     const expiresMins = Number(process.env.CHECKOUT_EXPIRES_MIN || 15);
@@ -67,59 +62,38 @@ router.post("/intents", assertMesaIfDinein, async (req, res) => {
     let sql, params;
 
     if (orderType === "dinein") {
-      // Debe coincidir con el índice parcial:
-      // CREATE UNIQUE INDEX ux_checkout_intents_dinein_pending
-      // ON checkout_intents (restaurant_id, mesa_id)
-      // WHERE status='pending' AND order_type='dinein';
+      // SIEMPRE crear un intent nuevo (sin ON CONFLICT)
       sql = `
         INSERT INTO checkout_intents
           (restaurant_id, mesa_id, order_type, amount, currency, cart, note, status, expires_at)
         VALUES
           ($2, $3, 'dinein', $4, 'PEN', $5::jsonb, $6, 'pending', ${expiresSql})
-        ON CONFLICT (restaurant_id, mesa_id)
-        WHERE (status = 'pending' AND order_type = 'dinein')
-        DO UPDATE SET
-          amount     = EXCLUDED.amount,
-          cart       = EXCLUDED.cart,
-          note       = EXCLUDED.note,
-          status     = 'pending',
-          updated_at = now(),
-          expires_at = EXCLUDED.expires_at
         RETURNING *;
       `;
       params = [String(expiresMins), rid, mesaId, amount, JSON.stringify(cart), note];
     } else {
-      // Debe coincidir con el índice parcial:
-      // CREATE UNIQUE INDEX ux_checkout_intents_takeaway_pending
-      // ON checkout_intents (restaurant_id, external_reference)
-      // WHERE status='pending' AND order_type='takeaway' AND external_reference IS NOT NULL;
+      // TAKEAWAY: no exigir externalReference; lo generamos si falta
       sql = `
         INSERT INTO checkout_intents
-          (restaurant_id, order_type, external_reference, amount, currency, cart, note, status, expires_at)
+          (restaurant_id, order_type, amount, currency, cart, note, status, expires_at)
         VALUES
-          ($2, 'takeaway', $3, $4, 'PEN', $5::jsonb, $6, 'pending', ${expiresSql})
-        ON CONFLICT (restaurant_id, external_reference)
-        WHERE (status = 'pending' AND order_type = 'takeaway' AND external_reference IS NOT NULL)
-        DO UPDATE SET
-          amount     = EXCLUDED.amount,
-          cart       = EXCLUDED.cart,
-          note       = EXCLUDED.note,
-          status     = 'pending',
-          updated_at = now(),
-          expires_at = EXCLUDED.expires_at
+          ($2, 'takeaway', $3, 'PEN', $4::jsonb, $5, 'pending', ${expiresSql})
         RETURNING *;
       `;
-      params = [String(expiresMins), rid, externalRef, amount, JSON.stringify(cart), note];
+      params = [String(expiresMins), rid, amount, JSON.stringify(cart), note];
     }
 
     const { rows } = await pool.query(sql, params);
     const intent = rows[0];
 
-    // Asegura external_reference en takeaway (por idempotencia)
-    if (orderType === "takeaway" && !intent.external_reference) {
-      const er = String(intent.id);
+    // Asegurar external_reference único (cumplir UNIQUE y trazabilidad)
+    if (!intent.external_reference) {
+      const er = String(intent.id); // id es UUID → suficiente para ser único
       const u = await pool.query(
-        `UPDATE checkout_intents SET external_reference=$1 WHERE id=$2 RETURNING *`,
+        `UPDATE checkout_intents
+           SET external_reference=$1, updated_at=now()
+         WHERE id=$2
+         RETURNING *`,
         [er, intent.id]
       );
       return res.status(201).json(u.rows[0]);

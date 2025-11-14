@@ -13,40 +13,100 @@ import {
   Archive,
 } from "lucide-react";
 
-/* ---------- HELPERS ---------- */
+/* =================== TZ / HELPERS =================== */
+const TZ = "America/Lima";
+
 const PEN = new Intl.NumberFormat("es-PE", {
   style: "currency",
   currency: "PEN",
   minimumFractionDigits: 2,
 });
-const atStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-const atEnd = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-const toDateInputValue = (d) => {
-  const off = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - off * 60 * 1000);
-  return local.toISOString().slice(0, 10);
-};
-const parseInputDateLocal = (str) => {
-  if (!str) return null;
-  const [y, m, d] = str.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-};
-const parseDBDateUTC = (s) => {
-  if (!s) return null;
-  const norm = String(s).replace(" ", "T");
-  const hasTZ = /[zZ]|[+\-]\d{2}:?\d{2}$/.test(norm);
-  return new Date(hasTZ ? norm : norm + "Z");
-};
-const toNextDayISO = (iso) => {
-  const d = parseInputDateLocal(iso);
-  if (!d) return iso;
-  d.setDate(d.getDate() + 1);
-  return toDateInputValue(d);
+
+// YYYY-MM-DD del "hoy" en Lima (independiente del PC del usuario)
+const todayLimaISO = () => {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const y = p.find((x) => x.type === "year")?.value;
+  const m = p.find((x) => x.type === "month")?.value;
+  const d = p.find((x) => x.type === "day")?.value;
+  return `${y}-${m}-${d}`;
 };
 
-// Devuelve la fecha “real” del cobro para un pedido
+// Convierte un string de DB (con o sin zona) a Date válido (UTC)
+const parseDBDateUTC = (s) => {
+  if (!s) return null;
+  let norm = String(s).trim().replace(" ", "T");
+  norm = norm
+    .replace(/([+\-]\d{2})$/, "$1:00")
+    .replace(/([+\-]\d{2})(\d{2})$/, "$1:$2");
+  if (!/[zZ]|[+\-]\d{2}:\d{2}$/.test(norm)) norm += "Z";
+  const d = new Date(norm);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+// hh:mm (24h) SIEMPRE en Lima
+const fmtHoraLima = (dOrStr) => {
+  const d = dOrStr instanceof Date ? dOrStr : parseDBDateUTC(dOrStr);
+  return d
+    ? new Intl.DateTimeFormat("es-PE", {
+        timeZone: TZ,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(d)
+    : "";
+};
+
+// YYYY-MM-DD → YYYY-MM-DD (día siguiente)
+const toNextDayISO = (iso) => {
+  const t = new Date(`${iso}T00:00:00Z`); // base UTC
+  t.setUTCDate(t.getUTCDate() + 1);
+  return t.toISOString().slice(0, 10);
+};
+
+// Rango UTC [from,to) equivalente al día Lima recibido (YYYY-MM-DD)
+const limaDayToUtcRange = (isoDay) => {
+  const startLima = new Date(`${isoDay}T00:00:00-05:00`);
+  const endLima = new Date(`${toNextDayISO(isoDay)}T00:00:00-05:00`);
+  return { from: startLima.toISOString(), to: endLima.toISOString() };
+};
+
+// Para “Hoy / Ayer” comparando SIEMPRE días Lima
+const dayKeyLima = (d) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d); // YYYY-MM-DD
+
+const labelFechaByDate = (d) => {
+  if (!d) return "";
+  const kEvent = dayKeyLima(d);
+  const kToday = todayLimaISO();
+  const kYday = toNextDayISO(todayLimaISO()); // hoy+1 en UTC no sirve; mejor restar 1 día en Lima:
+  // recalculamos “ayer” Lima correctamente:
+  const y = new Date(`${kToday}T00:00:00-05:00`);
+  y.setDate(y.getDate() - 1);
+  const kAyer = dayKeyLima(y);
+
+  if (kEvent === kToday) return "Hoy";
+  if (kEvent === kAyer) return "Ayer";
+
+  return new Intl.DateTimeFormat("es-PE", {
+    timeZone: TZ,
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+  }).format(d);
+};
+
+// Devuelve la mejor fecha de “evento de cobro” del pedido
 function getPaidDate(p) {
-  // 1) buscar campos directos comunes
   const directKeys = [
     "paid_at",
     "paidAt",
@@ -57,42 +117,26 @@ function getPaidDate(p) {
     "psp_approved_at",
     "updated_at",
     "updatedAt",
-    "created_at", // fallback final
+    "created_at", // fallback
   ];
   let best = null;
-
   for (const k of directKeys) {
     if (p && p[k]) {
       const d = parseDBDateUTC(p[k]);
       if (d && (!best || d > best)) best = d;
     }
   }
-
-  // 2) explorar pagos embebidos si vienen expandido(s)
   const pagosArr =
     (Array.isArray(p?.pagos) && p.pagos) ||
     (Array.isArray(p?.payments) && p.payments) ||
     null;
-
   if (pagosArr) {
     for (const pg of pagosArr) {
       const d = parseDBDateUTC(pg?.approved_at || pg?.approvedAt || pg?.created_at);
       if (d && (!best || d > best)) best = d;
     }
   }
-
-  // 3) último fallback si nada
   return best || parseDBDateUTC(p?.created_at) || null;
-}
-
-function labelFechaByDate(d) {
-  if (!d) return "";
-  const hoy = atStart(new Date());
-  const target = atStart(d);
-  const ms = 24 * 60 * 60 * 1000;
-  if (target.getTime() === hoy.getTime()) return "Hoy";
-  if (target.getTime() === hoy.getTime() - ms) return "Ayer";
-  return d.toLocaleDateString("es-PE", { weekday: "long", day: "2-digit", month: "short" });
 }
 
 function groupByDayByEvent(pedidos) {
@@ -112,8 +156,7 @@ function groupByDayByEvent(pedidos) {
   }));
 }
 
-/* ---------- SUB-UI ---------- */
-
+/* =================== SUB-UI =================== */
 function StatCard({ icon: Icon, label, value, loading }) {
   return (
     <div className="flex-1 rounded-lg bg-zinc-100/80 p-3">
@@ -127,6 +170,23 @@ function StatCard({ icon: Icon, label, value, loading }) {
         <div className="mt-1 text-2xl font-bold text-zinc-900">{value}</div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const ok = status === "Conectado";
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-xs ${
+        ok
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+      title={`Socket: ${status}`}
+    >
+      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "bg-slate-400"}`} />
+      {status}
+    </span>
   );
 }
 
@@ -179,7 +239,7 @@ function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, lo
               />
             </div>
             <button
-              onClick={() => onFilterChange("day", toDateInputValue(new Date()))}
+              onClick={() => onFilterChange("day", todayLimaISO())}
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100"
             >
               Hoy
@@ -195,7 +255,7 @@ function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, lo
 
 function PedidoCard({ pedido, isExpanded, onToggle }) {
   const d = pedido._eventAt || parseDBDateUTC(pedido.created_at);
-  const hora = d ? d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }) : "";
+  const hora = fmtHoraLima(d);
 
   return (
     <div className="rounded-2xl bg-white/80 shadow-lg shadow-zinc-200/50 backdrop-blur-lg transition-all">
@@ -214,7 +274,9 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
               <CheckCircle2 size={14} /> Pagado
             </span>
-            <p className="mt-1 font-semibold text-zinc-900">{PEN.format(Number(pedido.monto || 0))}</p>
+            <p className="mt-1 font-semibold text-zinc-900">
+              {PEN.format(Number(pedido.monto || 0))}
+            </p>
           </div>
           <ChevronDown
             size={20}
@@ -243,7 +305,15 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
   );
 }
 
-function PaginationControls({ page, pageCount, onPrev, onNext, showingStart, showingEnd, totalFiltered }) {
+function PaginationControls({
+  page,
+  pageCount,
+  onPrev,
+  onNext,
+  showingStart,
+  showingEnd,
+  totalFiltered,
+}) {
   if (totalFiltered <= 0) return null;
   return (
     <div className="flex items-center justify-between gap-2 rounded-2xl bg-white/80 p-3 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
@@ -268,30 +338,14 @@ function PaginationControls({ page, pageCount, onPrev, onNext, showingStart, sho
   );
 }
 
-function StatusBadge({ status }) {
-  const ok = status === "Conectado";
-  return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-xs ${
-        ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"
-      }`}
-      title={`Socket: ${status}`}
-    >
-      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "bg-slate-400"}`} />
-      {status}
-    </span>
-  );
-}
-
-/* ---------- PAGE ---------- */
-
+/* =================== PAGE =================== */
 export default function Pedidos() {
   const [allPedidos, setAllPedidos] = useState([]);
   const [status, setStatus] = useState("Desconectado");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState({});
-  const [day, setDay] = useState(toDateInputValue(new Date()));
+  const [day, setDay] = useState(todayLimaISO());
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
 
@@ -300,17 +354,19 @@ export default function Pedidos() {
       setError("");
       if (withSpinner) setLoading(true);
 
-      // Rango por fecha de pago (si el backend lo soporta)
+      // Rango UTC equivalente al día Lima seleccionado
+      const { from, to } = limaDayToUtcRange(day);
+
       const params = {
         status: "pagado",
-        from: day,
-        to: toNextDayISO(day),
-        expand: "pagos", // si el backend lo ignora, no pasa nada
+        from, // ISO UTC con 'Z'
+        to,   // [from, to)
+        expand: "pagos",
       };
+
       const res = await API.get("/pedidos", { params });
       const arr = Array.isArray(res.data) ? res.data : [];
 
-      // Normalizar _eventAt (fecha de cobro/aprobación) para filtrar/mostrar
       const norm = arr.map((p) => ({ ...p, _eventAt: getPaidDate(p) }));
       setAllPedidos(norm);
     } catch (err) {
@@ -347,16 +403,14 @@ export default function Pedidos() {
     fetchPedidos(true);
   }, [day]); // eslint-disable-line
 
-  // Filtrar por la fecha de evento (_eventAt)
+  // Filtrado por el día Lima (apoyado en _eventAt que ya está en UTC)
   const filtered = useMemo(() => {
     if (!day) return allPedidos;
-    const base = parseInputDateLocal(day);
-    if (!base) return [];
-    const d0 = atStart(base);
-    const d1 = atEnd(base);
+    const start = new Date(`${day}T00:00:00-05:00`).getTime();
+    const end = new Date(`${toNextDayISO(day)}T00:00:00-05:00`).getTime();
     return allPedidos.filter((p) => {
-      const d = p._eventAt || parseDBDateUTC(p.created_at);
-      return d && d >= d0 && d <= d1;
+      const d = (p._eventAt || parseDBDateUTC(p.created_at))?.getTime?.() ?? 0;
+      return d >= start && d < end;
     });
   }, [allPedidos, day]);
 
@@ -379,8 +433,7 @@ export default function Pedidos() {
   const goNext = () => setPage((p) => Math.min(pageCount, p + 1));
 
   const exportCsv = () => {
-    // placeholder de exportación
-    console.log("Export CSV - implementar si se requiere");
+    console.log("Export CSV - pendiente");
   };
 
   const showingStart = totalFiltered === 0 ? 0 : (page - 1) * perPage + 1;
@@ -432,12 +485,14 @@ export default function Pedidos() {
   );
 }
 
-/* ---------- STATES ---------- */
-
+/* =================== STATES =================== */
 const PedidosSkeleton = () => (
   <div className="space-y-3">
     {Array.from({ length: 4 }).map((_, i) => (
-      <div key={i} className="rounded-2xl bg-white/80 p-4 shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
+      <div
+        key={i}
+        className="rounded-2xl bg-white/80 p-4 shadow-lg shadow-zinc-200/50 backdrop-blur-lg"
+      >
         <div className="flex animate-pulse items-center justify-between">
           <div>
             <div className="h-5 w-32 rounded bg-zinc-200" />

@@ -204,8 +204,8 @@ export default function ProductSheet({ open, item, onClose }) {
       const group = grupos.find((g) => g.key === groupId);
       if (!group) return;
 
-      const currentGroupTotal = g.items.reduce((t, it) => t + (selected[it.id] || 0), 0);
-      if (delta > 0 && currentGroupTotal >= g.max) return;
+      const currentGroupTotal = group.items.reduce((t, it) => t + (selected[it.id] || 0), 0);
+      if (delta > 0 && currentGroupTotal >= group.max) return;
 
       setSelected((prev) => {
         const nextCount = Math.max(0, (prev[itemId] || 0) + delta);
@@ -295,20 +295,16 @@ export default function ProductSheet({ open, item, onClose }) {
         paddingRight: 0,
       }}
     >
-      {/* Wrapper: altura fija 642px en móvil; en desktop 85vh */}
+      {/* Wrapper: altura fija 642px en móvil; en desktop 85vh (sin @media inline) */}
       <div
         className="
           grid w-full bg-white overflow-hidden
           max-w-full sm:max-w-[440px]
           rounded-none sm:rounded-3xl
           shadow-2xl ring-1 ring-black/10
+          h-[min(642px,calc(100svh-24px))] sm:h-[85vh]
         "
-        style={{
-          gridTemplateRows: "auto 1fr auto",
-          height: "min(642px, calc(100svh - 24px))",
-          // desktop
-          ["@media (min-width: 640px)"]: undefined,
-        }}
+        style={{ gridTemplateRows: "auto 1fr auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -44,6 +44,7 @@ export default function Login() {
     const ctrl = new AbortController();
     (async () => {
       try {
+        // Si no hay sesión aún, esto puede devolver 401; simplemente lo ignoramos
         const ok = await refreshDbToken({ signal: ctrl.signal });
         if (ok) {
           const to = loc.state?.from?.pathname || "/dashboard";
@@ -71,21 +72,34 @@ export default function Login() {
     setMsg("");
     try {
       setLoading(true);
+
+      // Login contra tu backend-pedidos
       await login(email.trim(), password);
 
       if (remember) localStorage.setItem("persist", "1");
       else localStorage.removeItem("persist");
 
+      // Tomamos el token emitido por :4000 (dbToken) o equivalentes
       const dbToken =
         sessionStorage.getItem("dbToken") ||
         localStorage.getItem("dbToken") ||
         sessionStorage.getItem("access_token") ||
         localStorage.getItem("access_token");
 
-      const { role, rid, uid, mail } = pickClaims(dbToken, email);
+      // ---- FIX CLAVE: duplicar para que el interceptor de cashApi lo encuentre ----
+      if (dbToken) {
+        localStorage.setItem("access_token", dbToken);
+        localStorage.setItem("token", dbToken);
+      }
 
-      // Headers para auditoría en endpoints de efectivo
+      // Identidad para la UI (no se envía como header)
+      const { role, rid, uid, mail } = pickClaims(dbToken, email);
       setAuthIdentity({ email: mail, id: uid, role, restaurantId: rid });
+
+      // Opcional: precalienta CSRF de :5000 (evita 403 la primera vez)
+      try {
+        await fetch("http://localhost:5000/api/csrf", { credentials: "include" });
+      } catch {}
 
       const next = role === "staff"
         ? "/mozo/cobro-efectivo"
@@ -156,7 +170,7 @@ export default function Login() {
                 {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            {capsOn && 
+            {capsOn &&
               <div id="caps-hint" className="mt-1.5 text-xs text-amber-700 flex items-center gap-1.5">
                 <Keyboard size={14} /> Bloq Mayús activado
               </div>

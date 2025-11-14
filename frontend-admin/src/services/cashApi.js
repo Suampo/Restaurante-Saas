@@ -12,7 +12,7 @@ const ADMIN_BASE = "/admin";       // rutas admin
 
 export const FACT_API = axios.create({
   baseURL: FACT_BASE,
-  withCredentials: true,
+  withCredentials: true,   // cookies CSRF/sesión
   timeout: 20000,
 });
 
@@ -25,35 +25,34 @@ function getCookie(name) {
   return m ? decodeURIComponent(m[2]) : null;
 }
 
+// Identidad opcional (solo para UI)
 export function setAuthIdentity({ email, id, role, restaurantId } = {}) {
   if (email) localStorage.setItem("user_email", email); else localStorage.removeItem("user_email");
   if (id) localStorage.setItem("user_id", id); else localStorage.removeItem("user_id");
   if (role) localStorage.setItem("user_role", role); else localStorage.removeItem("user_role");
-  if (restaurantId != null) localStorage.setItem("restaurant_id", String(restaurantId));
+  if (restaurantId != null) localStorage.setItem("restaurant_id", String(restaurantId)); else localStorage.removeItem("restaurant_id");
 }
 export function clearAuthIdentity() { setAuthIdentity({}); }
 
+/**
+ * Interceptor de request:
+ * - Añade Authorization si existe token (incluye dbToken).
+ * - Resuelve CSRF para /api/split y /api/checkout.
+ * - No envía headers custom (x-app-user, etc.).
+ */
 FACT_API.interceptors.request.use(async (config) => {
-  // Bearer opcional
+  // MUY IMPORTANTE: incluir dbToken, además de variantes comunes
   const bearer =
     localStorage.getItem("token") ||
     sessionStorage.getItem("token") ||
     localStorage.getItem("access_token") ||
-    sessionStorage.getItem("access_token");
+    sessionStorage.getItem("access_token") ||
+    localStorage.getItem("dbToken") ||
+    sessionStorage.getItem("dbToken");
+
   if (bearer) config.headers.Authorization = `Bearer ${bearer}`;
 
-  // Trazabilidad
-  const userEmail = localStorage.getItem("user_email") || sessionStorage.getItem("user_email");
-  const userId    = localStorage.getItem("user_id")    || sessionStorage.getItem("user_id");
-  const userRole  = localStorage.getItem("user_role")  || sessionStorage.getItem("user_role");
-  const restaurantId = localStorage.getItem("restaurant_id") || sessionStorage.getItem("restaurant_id");
-
-  if (userEmail)    config.headers["x-app-user"] = userEmail;
-  if (userId)       config.headers["x-app-user-id"] = userId;
-  if (userRole)     config.headers["x-user-role"] = userRole;
-  if (restaurantId) config.headers["x-restaurant-id"] = restaurantId;
-
-  // CSRF solo para split/checkout
+  // CSRF sólo para split/checkout
   const url = typeof config.url === "string" ? config.url : "";
   const needsCsrf = url.startsWith(SPLIT_BASE) || url.startsWith("/api/checkout");
   if (needsCsrf) {
@@ -65,9 +64,14 @@ FACT_API.interceptors.request.use(async (config) => {
     }
     if (token) config.headers["x-csrf-token"] = token;
   }
+
   return config;
 });
 
+/**
+ * Interceptor de response:
+ * - Si el backend devuelve 403 por CSRF inválido/ausente, reintenta tras pedir /api/csrf.
+ */
 FACT_API.interceptors.response.use(
   (r) => r,
   async (error) => {
@@ -85,7 +89,7 @@ FACT_API.interceptors.response.use(
   }
 );
 
-// ----------------- API -----------------
+// ----------------- API: SPLIT/EFECTIVO -----------------
 export async function getSaldo(pedidoId) {
   const { data } = await FACT_API.get(`${SPLIT_BASE}/pedidos/${pedidoId}/saldo`);
   return data;
@@ -107,10 +111,10 @@ export async function aprobarPagoEfectivo(pedidoId, pagoId, { pin, received, not
   return data;
 }
 
-// Normalizador de estado para el filtro
+// ----------------- API: ADMIN -----------------
 const mapEstado = (v) => {
   const s = String(v || "").trim().toLowerCase();
-  if (["", "*", "todos", "todo", "all"].includes(s)) return undefined; // no enviar => todos
+  if (["", "*", "todos", "todo", "all"].includes(s)) return undefined;
   if (["aprobado", "aprobados", "approved"].includes(s)) return "approved";
   if (["pendiente", "pendientes", "pending"].includes(s)) return "pending";
   return undefined;
@@ -130,6 +134,27 @@ export async function listarMovimientosEfectivo({ start, end, estado, userId } =
 
   const { data } = await FACT_API.get(`${ADMIN_BASE}/cash-movements`, { params });
   return data;
+}
+
+// ----------------- AUTH MOZO :5000 (opcional) -----------------
+// Si quieres login de mozo propio en :5000
+export async function loginMozo({ restaurantId, pin }) {
+  const { data } = await FACT_API.post("/api/auth/login-mozo", { restaurantId, pin }, { withCredentials: true });
+  if (!data?.ok || !data?.token) throw new Error("Login mozo falló");
+  // Guardamos para que el interceptor lo mande como Authorization
+  localStorage.setItem("token", data.token);
+  if (data?.user?.restaurantId != null) {
+    localStorage.setItem("restaurant_id", String(data.user.restaurantId));
+  }
+  return data;
+}
+
+export async function ensureMozoSession({ restaurantId, pin } = {}) {
+  const t = localStorage.getItem("token");
+  if (t) return true;
+  if (!restaurantId || !pin) throw new Error("Falta restaurantId o PIN para login de mozo");
+  await loginMozo({ restaurantId, pin });
+  return true;
 }
 
 export default FACT_API;

@@ -1,5 +1,5 @@
 // src/components/BillingModal.jsx
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { payWithCardViaBrick, payWithYape } from "../services/mercadopago";
 import { useMenuPublic } from "../hooks/useMenuPublic";
 import { abandonarIntent } from "../services/checkout";
@@ -23,24 +23,27 @@ export default function BillingModal({
   open,
   onClose,
   loading = false,
-  onSubmit,          // crea/actualiza INTENT + PEDIDO para tarjeta/yape
+  onSubmit,          // crea/actualiza INTENT + PEDIDO
   onPayCash,         // genera pedido con saldo pendiente por efectivo
   MP,                // { CardPayment } desde @mercadopago/sdk-react
   showCard = false,
-  orderInfo = null,  // { intentId, amount (SOLES), restaurantId, pedidoId?, email? }
+  orderInfo = null,  // { intentId, amount, restaurantId, pedidoId?, email? }
   onBackToForm,
   orderSummary = [],
   orderNote = "",
 }) {
   const { billingMode } = useMenuPublic();
-  const isSunat = billingMode === "sunat";
+  const allowSunat = billingMode === "sunat";
+
+  // Solo 2 modos visibles: 'sunat' o 'simple'
+  const [mode, setMode] = useState(allowSunat ? "sunat" : "simple");
 
   // comunes
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
 
-  // sunat
-  const [comprobante, setComprobante] = useState("boleta");
+  // sunat / simple
+  const [comprobante, setComprobante] = useState("boleta"); // SUNAT
   const [docType, setDocType] = useState("DNI");
   const [docNumber, setDocNumber] = useState("");
   const [address, setAddress] = useState("");
@@ -60,8 +63,9 @@ export default function BillingModal({
       setSuccess(null);
       setCashCreated(null);
       setProcessing(false);
+      setMode(allowSunat ? "sunat" : "simple");
     }
-  }, [open]);
+  }, [open, allowSunat]);
 
   if (!open) return null;
 
@@ -69,18 +73,32 @@ export default function BillingModal({
     e.preventDefault();
     setProcessing(true);
     try {
-      if (!isSunat) {
-        await onSubmit?.({ mode: "nosunat", email, name });
-        return;
+      if (mode === "sunat") {
+        await onSubmit?.({
+          mode: "sunat",
+          comprobante,
+          docType,
+          docNumber,
+          name,
+          address,
+          email,
+        });
+      } else {
+        // 'simple'
+        await onSubmit?.({
+          mode: "simple",
+          docType: "DNI",
+          docNumber,
+          name,
+          email,
+        });
       }
-      await onSubmit?.({ mode: "sunat", comprobante, docType, docNumber, name, address, email });
     } finally {
       setProcessing(false);
     }
   };
 
   const handleHeaderClose = async () => {
-    // No anules intent si ya hay pago OK
     if (showCard && orderInfo?.intentId && !success) {
       try { await abandonarIntent(orderInfo.intentId); } catch {}
     }
@@ -100,26 +118,33 @@ export default function BillingModal({
     });
   };
 
+  const headerTitle = success
+    ? "Pago recibido"
+    : cashCreated
+      ? "Pedido generado (paga en caja)"
+      : showCard
+        ? "Pago seguro"
+        : mode === "sunat"
+          ? "Datos para Boleta/Factura"
+          : "Datos para Boleta Simple";
+
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-4 sm:p-6"
-      style={{ background: "linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35))" }}
+      className="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6 bg-black/50 sm:bg-black/40"
       role="dialog"
       aria-modal="true"
     >
       <div className="
         w-full max-w-[560px] sm:max-w-5xl overflow-hidden
-        rounded-3xl border border-white/10 bg-white/80 backdrop-blur-xl
+        rounded-3xl border border-white/10 bg-white/70
+        backdrop-blur-md sm:backdrop-blur-xl
         shadow-[0_10px_40px_-5px_rgba(0,0,0,.25)]
         ring-1 ring-black/5 max-h-[92svh] flex flex-col
       ">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 shrink-0 bg-gradient-to-r from-white/70 to-white/40 backdrop-blur">
+        <div className="flex items-center justify-between px-3 py-3 sm:px-6 sm:py-4 shrink-0 bg-gradient-to-r from-white/70 to-white/40">
           <h2 className="text-base sm:text-lg font-semibold tracking-tight text-neutral-900" id="billing-title">
-            {success ? "Pago recibido"
-             : cashCreated ? "Pedido generado (paga en caja)"
-             : showCard ? "Pago seguro"
-             : isSunat ? "Datos para Boleta/Factura" : "Datos del cliente (opcional)"}
+            {headerTitle}
           </h2>
           <button
             type="button"
@@ -132,7 +157,7 @@ export default function BillingModal({
         </div>
 
         {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3 sm:p-6" aria-labelledby="billing-title">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2 sm:p-6" aria-labelledby="billing-title">
           {success ? (
             <SuccessView
               amount={success.amount}
@@ -164,36 +189,45 @@ export default function BillingModal({
               orderSummary={orderSummary}
               onMpApproved={() => showSuccess(amountSoles)}
               onCashCreate={async () => {
-                // llamado desde la pestaña EFECTIVO
                 if (!onPayCash) return alert("onPayCash no implementado");
                 const resp = await onPayCash({ amount: amountSoles });
                 showCashCreated({ amount: resp?.amount ?? amountSoles, pedidoId: resp?.pedidoId });
               }}
             />
           ) : (
-            <form onSubmit={submitForm} noValidate>
-              {!isSunat ? (
-                <>
-                  <div className="space-y-3">
-                    <LabeledInput id="billing-name" label="Nombre (opcional)" value={name} onChange={setName} placeholder="Cliente" />
-                    <LabeledInput id="billing-email" label="Email (opcional)" type="email" value={email} onChange={setEmail} placeholder="cliente@correo.com" />
-                  </div>
-                  <FooterActions
-                    primaryLabel={loading || processing ? "Procesando…" : "Continuar a pagar"}
-                    primaryDisabled={loading || processing}
-                    onCancel={onClose}
-                  />
-                </>
-              ) : (
+            <form onSubmit={submitForm} noValidate className="max-w-full">
+              {/* ====== Selector principal (solo 2 opciones) ====== */}
+              <div className="mb-3 inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
+                {allowSunat && (
+                  <TogglePill active={mode === "sunat"} onClick={() => setMode("sunat")}>
+                    Boleta/Factura
+                  </TogglePill>
+                )}
+                <TogglePill active={mode === "simple"} onClick={() => setMode("simple")}>
+                  Boleta simple
+                </TogglePill>
+              </div>
+
+              {/* ====== SUNAT ====== */}
+              {mode === "sunat" ? (
                 <>
                   {/* Selector Boleta/Factura */}
                   <div className="mb-3 inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
-                    <TogglePill active={comprobante === "boleta"} onClick={() => { setComprobante("boleta"); if (docType !== "DNI") setDocType("DNI"); }}>Boleta</TogglePill>
-                    <TogglePill active={comprobante === "factura"} onClick={() => { setComprobante("factura"); setDocType("RUC"); }}>Factura</TogglePill>
+                    <TogglePill
+                      active={comprobante === "boleta"}
+                      onClick={() => { setComprobante("boleta"); if (docType !== "DNI") setDocType("DNI"); }}
+                    >
+                      Boleta
+                    </TogglePill>
+                    <TogglePill
+                      active={comprobante === "factura"}
+                      onClick={() => { setComprobante("factura"); setDocType("RUC"); }}
+                    >
+                      Factura
+                    </TogglePill>
                   </div>
 
-                  {/* Tarjeta del formulario */}
-                  <div className="rounded-2xl border bg-white/80 backdrop-blur shadow-sm ring-1 ring-black/5">
+                  <div className="rounded-2xl border bg-white/80 shadow-sm ring-1 ring-black/5">
                     <div className="grid gap-3 p-4 sm:grid-cols-3">
                       <div>
                         <Label small>Tipo doc.</Label>
@@ -261,6 +295,50 @@ export default function BillingModal({
                     onCancel={onClose}
                   />
                 </>
+              ) : (
+                /* ====== SIMPLE ====== */
+                <>
+                  <div className="rounded-2xl border bg-white/80 shadow-sm ring-1 ring-black/5">
+                    <div className="grid gap-3 p-4 sm:grid-cols-3">
+                      <LabeledInput
+                        id="billing-docNumber-simple"
+                        label="DNI (opcional)"
+                        value={docNumber}
+                        onChange={(v) => setDocNumber(String(v).replace(/\D+/g, "").slice(0, 8))}
+                        placeholder="8 dígitos"
+                        inputMode="numeric"
+                        className="sm:col-span-1"
+                      />
+                      <LabeledInput
+                        id="billing-name-simple"
+                        className="sm:col-span-2"
+                        label="Nombres y Apellidos"
+                        value={name}
+                        onChange={setName}
+                        placeholder="Juan Pérez"
+                      />
+                      <LabeledInput
+                        id="billing-email-simple"
+                        className="sm:col-span-3"
+                        type="email"
+                        label={<>Email <span className="text-neutral-400">(opcional)</span></>}
+                        value={email}
+                        onChange={setEmail}
+                        placeholder="cliente@correo.com"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-neutral-500">
+                    Se emitirá un <b>recibo simple</b> (no electrónico) con estos datos.
+                  </p>
+
+                  <FooterActions
+                    primaryLabel={loading || processing ? "Procesando…" : "Continuar a pagar"}
+                    primaryDisabled={loading || processing}
+                    onCancel={onClose}
+                  />
+                </>
               )}
             </form>
           )}
@@ -270,7 +348,7 @@ export default function BillingModal({
   );
 }
 
-/* ===================== PAY TABS ===================== */
+/* ===================== PAY TABS (KEEP-ALIVE) ===================== */
 function PayTabs({
   MP,
   amountSoles,
@@ -281,14 +359,7 @@ function PayTabs({
   onMpApproved,
   onCashCreate,
 }) {
-  const [tab, _setTab] = useState("card"); // 'card' | 'yape' | 'cash'
-  const [switching, setSwitching] = useState(false);
-  const setTab = (t) => {
-    if (switching || t === tab) return;
-    _setTab(t);
-    setSwitching(true);
-    setTimeout(() => setSwitching(false), 350);
-  };
+  const [tab, setTab] = useState("card"); // 'card' | 'yape' | 'cash'
 
   const totalRight = (
     <div className="rounded-2xl border bg-white/80 backdrop-blur p-4 shadow-sm ring-1 ring-black/5">
@@ -304,9 +375,9 @@ function PayTabs({
   );
 
   return (
-    <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
+    <div className="grid gap-6 md:grid-cols-[2fr_1fr] min-w-0">
       {/* IZQUIERDA */}
-      <section>
+      <section className="min-w-0">
         {/* Tabs */}
         <div className="inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
           <TogglePill active={tab === "card"} onClick={() => setTab("card")}>
@@ -320,61 +391,54 @@ function PayTabs({
           </TogglePill>
         </div>
 
-        <div className="mt-4 rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-          {/* Card tab */}
-          {tab === "card" && (
-            <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
-              <h3 className="mb-3 text-sm font-medium text-neutral-900">Tarjeta de crédito o débito</h3>
-              <div className="min-h-[320px]">
-                <CardBrick
-                  MP={MP}
-                  amountSoles={amountSoles}
-                  intentId={orderInfo?.intentId}
-                  restaurantId={orderInfo?.restaurantId}
-                  pedidoId={orderInfo?.pedidoId}
-                  onApproved={() => onMpApproved?.()}
-                />
-              </div>
-              <p className="mt-2 text-[11px] text-neutral-500">Pago seguro con campos protegidos.</p>
-            </div>
-          )}
-
-          {/* Yape */}
-          {tab === "yape" && (
-            <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
-              <h3 className="mb-3 text-sm font-medium text-neutral-900">Pagar con Yape</h3>
-              <YapeForm
+        <div className="mt-4 rounded-2xl border bg-white/80 p-3 sm:p-4 shadow-sm ring-1 ring-black/5">
+          {/* Tarjeta */}
+          <div className={`${tab === "card" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
+            <div className="min-h-[360px] w-full">
+              <CardBrick
+                MP={MP}
                 amountSoles={amountSoles}
                 intentId={orderInfo?.intentId}
                 restaurantId={orderInfo?.restaurantId}
                 pedidoId={orderInfo?.pedidoId}
-                buyerEmail={orderInfo?.email}
                 onApproved={() => onMpApproved?.()}
               />
             </div>
-          )}
+            <p className="mt-2 text-[11px] text-neutral-500">Pago seguro con campos protegidos.</p>
+          </div>
+
+          {/* Yape */}
+          <div className={`${tab === "yape" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
+            <h3 className="mb-3 text-sm font-medium text-neutral-900">Pagar con Yape</h3>
+            <YapeForm
+              amountSoles={amountSoles}
+              intentId={orderInfo?.intentId}
+              restaurantId={orderInfo?.restaurantId}
+              pedidoId={orderInfo?.pedidoId}
+              buyerEmail={orderInfo?.email}
+              onApproved={() => onMpApproved?.()}
+            />
+          </div>
 
           {/* Efectivo */}
-          {tab === "cash" && (
-            <div className={`transition-all ${switching ? "opacity-0 translate-y-1" : "opacity-100 translate-y-0"}`}>
-              <h3 className="mb-3 text-sm font-medium text-neutral-900">Efectivo en local</h3>
-              <p className="mb-3 text-sm text-neutral-700">
-                Generaremos tu pedido y quedará <b>pendiente por pagar en caja</b>.
-                Muéstrale tu número de pedido al mozo para completar el cobro.
-              </p>
-              <button
-                type="button"
-                onClick={onCashCreate}
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20 hover:bg-emerald-700"
-              >
-                Confirmar y pagar en caja (S/ {amountSoles.toFixed(2)})
-              </button>
-            </div>
-          )}
+          <div className={`${tab === "cash" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
+            <h3 className="mb-3 text-sm font-medium text-neutral-900">Efectivo en local</h3>
+            <p className="mb-3 text-sm text-neutral-700">
+              Generaremos tu pedido y quedará <b>pendiente por pagar en caja</b>.
+              Muéstrale tu número de pedido al mozo para completar el cobro.
+            </p>
+            <button
+              type="button"
+              onClick={onCashCreate}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20 hover:bg-emerald-700"
+            >
+              Confirmar y pagar en caja (S/ {amountSoles.toFixed(2)})
+            </button>
+          </div>
         </div>
 
-        {/* Footer acciones izquierda */}
-        <div className="sticky bottom-0 mt-3 -mx-4 border-t bg-white/95 px-4 py-3 md:static md:m-0 md:border-0 md:bg-transparent md:p-0">
+        {/* Footer izquierda */}
+        <div className="sticky bottom-0 mt-3 -mx-3 border-t bg-white/95 px-3 py-3 md:static md:m-0 md:border-0 md:bg-transparent md:p-0">
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -431,8 +495,8 @@ function OrderSummary({ orderSummary }) {
     <ul className="divide-y text-sm">
       {orderSummary.map((it, idx) => (
         <li key={idx} className="flex items-center justify-between py-2">
-          <div className="flex-1">
-            <div className="font-medium text-neutral-900">{it.name}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-neutral-900 truncate">{it.name}</div>
             <div className="text-xs text-neutral-500">x{it.qty}</div>
           </div>
           <div className="ml-3 text-right text-neutral-900">
@@ -444,7 +508,7 @@ function OrderSummary({ orderSummary }) {
   );
 }
 
-/* ===================== CARD BRICK (simplificado) ===================== */
+/* ===================== CARD BRICK ===================== */
 const CardBrick = React.memo(function CardBrick({
   MP,
   amountSoles,
@@ -457,12 +521,12 @@ const CardBrick = React.memo(function CardBrick({
   const [ready, setReady] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
-  // id estable por intent (fuerza remount si cambia el intent o el monto)
   const brickKey = useMemo(
     () => `intent-${intentId || "na"}-amt-${Number(amountSoles).toFixed(2)}`,
     [intentId, amountSoles]
   );
-  const containerId = `cardPaymentBrick_container_${brickKey}`;
+  const containerId = `mp-card-${brickKey}`;
+  const init = useMemo(() => ({ amount: Number(amountSoles) }), [amountSoles]);
 
   if (!PaymentCmp) {
     return (
@@ -488,10 +552,7 @@ const CardBrick = React.memo(function CardBrick({
             payment_method_id: fd.payment_method_id,
             issuer_id: fd.issuer_id,
             installments: Number(fd.installments || 1),
-            payer: {
-              email: fd?.payer?.email || "",
-              identification: fd?.payer?.identification,
-            },
+            payer: { email: fd?.payer?.email || "", identification: fd?.payer?.identification },
           },
           description: `Pedido ${pedidoId ?? "-"} / Intent ${intentId}`,
           metadata: { intentId, restaurantId, pedidoId },
@@ -499,7 +560,7 @@ const CardBrick = React.memo(function CardBrick({
         });
 
         if (resp?.status === "approved") onApproved?.();
-        else alert(`Estado: ${resp?.status} ${resp?.status_detail ? `(${resp.status_detail})` : ""}`);
+        else alert(`Estado: ${resp?.status}${resp?.status_detail ? ` (${resp.status_detail})` : ""}`);
         resolve(resp);
       } catch (e) {
         setErrMsg(e?.message || "Error procesando tarjeta");
@@ -508,12 +569,11 @@ const CardBrick = React.memo(function CardBrick({
     });
 
   return (
-    <div className="min-h-[320px]">
-      <div id={containerId} />
+    <div className="mp-card-wrap min-h-[360px] w-full">
       <PaymentCmp
         key={brickKey}
-        containerProps={{ id: containerId }}
-        initialization={{ amount: Number(amountSoles) }}
+        containerProps={{ id: containerId, style: { width: "100%", minWidth: 0 } }}
+        initialization={init}
         onSubmit={handleSubmit}
         onReady={() => setReady(true)}
         onError={(e) => setErrMsg(e?.message || "No se pudo inicializar el formulario de pago")}
@@ -551,12 +611,20 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
     }
     setLoading(true);
     try {
-      const pk = window.__MP_INIT_KEY;
-      const mp = new window.MercadoPago(pk, { locale: "es-PE" });
+      const pk = (window).__MP_INIT_KEY;
+      if (!window.MercadoPago || !pk) {
+        alert("Mercado Pago no está inicializado.");
+        return;
+      }
+
+      const mp = window.__MP_SINGLETON || (window.__MP_SINGLETON =
+        new window.MercadoPago(pk, { locale: "es-PE" }));
+
       const yape = mp.yape({ phoneNumber: phone, otp });
       const { id: token } = await yape.create();
 
-      const safeEmail = (buyerEmail || "").trim() || `yape+${intentId || Date.now()}@example.com`;
+      const safeEmail =
+        (buyerEmail || "").trim() || `yape+${intentId || Date.now()}@example.com`;
 
       const resp = await payWithYape({
         token,
@@ -568,8 +636,9 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
       });
 
       if (resp?.status === "approved") onApproved?.();
-      else alert(`Estado: ${resp?.status} (${resp?.status_detail || ""})`);
-    } catch {
+      else alert(`Estado: ${resp?.status}${resp?.status_detail ? ` (${resp.status_detail})` : ""}`);
+    } catch (err) {
+      console.error(err);
       alert("No se pudo tokenizar Yape");
     } finally {
       setLoading(false);
@@ -702,7 +771,6 @@ function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
 function Label({ children, small }) {
   return <label className={`${small ? "text-[12px]" : "text-xs"} mb-1 block font-medium text-neutral-600`}>{children}</label>;
 }
-
 function LabeledInput({ id, label, value, onChange, className = "", ...rest }) {
   return (
     <div className={className}>
@@ -721,7 +789,6 @@ function LabeledInput({ id, label, value, onChange, className = "", ...rest }) {
     </div>
   );
 }
-
 function FloatingInput({ label, value, onChange, className = "", ...rest }) {
   const active = String(value || "").length > 0;
   return (
@@ -746,25 +813,25 @@ function FloatingInput({ label, value, onChange, className = "", ...rest }) {
     </div>
   );
 }
-
-function TogglePill({ active, onClick, children }) {
+function TogglePill({ active, onClick, children, disabled }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
       className={`relative rounded-full px-4 py-1.5 text-sm font-medium transition
-        ${active ? "bg-white shadow-sm text-neutral-900" : "text-neutral-700 hover:bg-white/70"}`}
+        ${active ? "bg-white shadow-sm text-neutral-900" : "text-neutral-700 hover:bg-white/70"}
+        ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
     >
       <span className={`absolute inset-0 -z-10 rounded-full bg-gradient-to-r from-emerald-500/0 to-emerald-500/0 transition-opacity ${active ? "opacity-100" : "opacity-0"}`} />
       {children}
     </button>
   );
 }
-
 function FooterActions({ primaryLabel, primaryDisabled, onCancel }) {
   return (
-    <div className="sticky bottom-0 mt-4 -mx-4 border-t bg-white/95 px-4 py-3 sm:mx-0 sm:px-0">
+    <div className="sticky bottom-0 mt-4 -mx-3 border-t bg-white/95 px-3 py-3 sm:mx-0 sm:px-0">
       <div className="flex items-center justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm text-neutral-700 shadow-sm hover:bg-neutral-50">
           Cancelar

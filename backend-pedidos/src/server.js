@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
-
+import { imgRouter } from "./routes/img.js";
 /* ===== Rutas (estables) ===== */
 import pspPublicRoutes from "./routes/psp.public.js";
 import authPublicRoutes from "./routes/auth.public.js";
@@ -117,9 +117,11 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
+/* ===== /img (optimización) ANTES de CSRF ===== */
+app.use("/img", imgRouter);
+
 /* ===== CSRF (double-submit cookie) ===== */
 app.use(requireCsrf);
-
 /* ===== Cache headers ===== */
 app.use((req, res, next) => {
   if (req.path && req.path.startsWith("/api/reportes")) {
@@ -200,6 +202,7 @@ app.use("/api", sessionCookieRoutes);   // /api/csrf + /api/session/refresh + /a
 app.use("/api", sessionLoginRoutes);    // /api/session/login
 app.use("/api", authPublicRoutes);
 app.use("/api", pspPublicRoutes);
+app.use("/api/pay", payRoutes);
 app.use("/api/dev", devRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api", publicMenuV2Routes);   // GET /api/public/menu-v2
@@ -226,7 +229,6 @@ app.use("/api/mesas", requireDbToken, mesaRoutes);
 app.use("/api/menu-item", requireDbToken, menuImageRoutes);
 app.use("/api/menu-items", requireDbToken, menuItemRoutes);
 app.use("/api/combos", requireDbToken, combosRoutes);
-app.use("/api/pay", requireDbToken, payRoutes);
 app.use("/api/categorias", requireDbToken, categoriaRoutes);
 app.use("/api/reportes", requireDbToken, reportesRoutes);
 app.use("/api", requireDbToken, exportRoutes);
