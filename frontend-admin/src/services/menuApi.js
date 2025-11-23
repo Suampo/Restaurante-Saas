@@ -13,7 +13,7 @@ export async function createMenuItem({ nombre, precio, descripcion, categoriaId 
     nombre,
     precio,
     descripcion,
-    categoria_id: categoriaId ?? null,
+    categoriaId: categoriaId ?? null,
   });
   return data;
 }

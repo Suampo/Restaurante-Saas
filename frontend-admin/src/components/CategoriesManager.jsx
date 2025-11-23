@@ -60,6 +60,10 @@ export default function CategoriesManager({ onChange }) {
   const [busyId, setBusyId] = useState(null);
   const [imgVer, setImgVer] = useState({});
 
+  // 👇 NUEVO: paginación local para categorías
+  const [catPage, setCatPage] = useState(1);
+  const [catPerPage, setCatPerPage] = useState(4); // 4 por página por defecto
+
   // --- Estado unificado para todos los modales ---
   const [modalState, setModalState] = useState({
     type: null, // 'rename', 'delete', 'conflict'
@@ -115,6 +119,15 @@ export default function CategoriesManager({ onChange }) {
     initRan.current = true;
     fetchInitial();
   }, [fetchInitial]);
+
+  // 👇 cuando cambie el número de categorías o el tamaño de página,
+  //    nos aseguramos de que la página actual sea válida
+  useEffect(() => {
+    setCatPage((p) => {
+      const totalPages = Math.max(1, Math.ceil(cats.length / catPerPage));
+      return Math.min(Math.max(1, p || 1), totalPages);
+    });
+  }, [cats.length, catPerPage]);
 
   // helpers mutación local
   const patchCat = (id, patch) =>
@@ -251,13 +264,63 @@ export default function CategoriesManager({ onChange }) {
     }
   };
 
+  // 👇 categorías visibles en esta página
+  const totalCats = cats.length;
+  const totalCatPages = Math.max(1, Math.ceil(totalCats / catPerPage));
+  const start = (catPage - 1) * catPerPage;
+  const visibleCats = cats.slice(start, start + catPerPage);
+
+  const goCatPrev = () => setCatPage((p) => Math.max(1, p - 1));
+  const goCatNext = () => setCatPage((p) => Math.min(totalCatPages, p + 1));
+
   return (
     <>
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6">
         <h3 className="text-lg font-bold text-gray-900">Categorías</h3>
-        <p className="mt-1 mb-6 text-sm text-gray-600">
+        <p className="mt-1 mb-4 text-sm text-gray-600">
           Organiza tus platos en grupos para una mejor navegación en el menú.
         </p>
+
+        {/* 👇 Barra pequeña con total + paginación */}
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+          <span className="text-gray-600">
+            <strong>{totalCats}</strong> categorías
+          </span>
+          <div className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+            <span className="hidden sm:inline text-gray-600">Mostrar</span>
+            <select
+              value={catPerPage}
+              onChange={(e) => {
+                setCatPerPage(Number(e.target.value));
+                setCatPage(1);
+              }}
+              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs sm:text-sm"
+            >
+              {[4, 6, 8, 12].map((n) => (
+                <option key={n} value={n}>
+                  {n} / pág.
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={goCatPrev}
+              className="rounded-md border border-gray-200 bg-white px-1.5 py-1 hover:bg-gray-100"
+            >
+              ‹
+            </button>
+            <span className="min-w-[80px] text-center text-gray-700">
+              Pág. <strong>{catPage}</strong> / {totalCatPages}
+            </span>
+            <button
+              type="button"
+              onClick={goCatNext}
+              className="rounded-md border border-gray-200 bg-white px-1.5 py-1 hover:bg-gray-100"
+            >
+              ›
+            </button>
+          </div>
+        </div>
 
         {/* --- Formulario de creación --- */}
         <form onSubmit={add} className="mb-4 flex gap-3">
@@ -278,7 +341,7 @@ export default function CategoriesManager({ onChange }) {
           </button>
         </form>
 
-        {/* --- Aviso de categorías recomendadas (Extras / Acompañamientos / Bebidas) --- */}
+        {/* --- Aviso de categorías recomendadas --- */}
         <RecommendedCategoriesHint
           categories={cats}
           onCreateCategory={createSuggested}
@@ -295,7 +358,7 @@ export default function CategoriesManager({ onChange }) {
               <p className="text-sm text-gray-500">Aún no has creado ninguna categoría.</p>
             </div>
           ) : (
-            cats.map((c) => {
+            visibleCats.map((c) => {
               const hasCover =
                 typeof c.cover_url === "string" && c.cover_url.trim() !== "";
               const pending = busyId === c.id;

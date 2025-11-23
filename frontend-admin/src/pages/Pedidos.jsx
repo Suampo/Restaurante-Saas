@@ -275,7 +275,14 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
               <CheckCircle2 size={14} /> Pagado
             </span>
             <p className="mt-1 font-semibold text-zinc-900">
-              {PEN.format(Number(pedido.monto || 0))}
+              {PEN.format(
+    Number(
+      pedido.monto ??
+      pedido.total ??
+      pedido.total_pedido ??
+      0
+    )
+  )}
             </p>
           </div>
           <ChevronDown
@@ -358,7 +365,7 @@ export default function Pedidos() {
       const { from, to } = limaDayToUtcRange(day);
 
       const params = {
-        status: "pagado",
+        estado: "pagado",
         from, // ISO UTC con 'Z'
         to,   // [from, to)
         expand: "pagos",
@@ -416,9 +423,9 @@ export default function Pedidos() {
 
   const totalFiltered = filtered.length;
   const totalMonto = useMemo(
-    () => filtered.reduce((acc, p) => acc + Number(p.monto || 0), 0),
-    [filtered]
-  );
+  () => filtered.reduce((acc, p) => acc + Number(p.monto ?? p.total ?? p.total_pedido ?? 0), 0),
+  [filtered]
+);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
   const pageItems = useMemo(() => {

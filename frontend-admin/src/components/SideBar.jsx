@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Home, List, Utensils, ShoppingCart, Boxes, TrendingUp, LogOut,
-  ChevronsLeft, ChevronsRight, X, CookingPot, Users
+  ChevronsLeft, ChevronsRight, X, CookingPot, Users,FileText
 } from "lucide-react";
 import API from "../services/axiosInstance";
 
@@ -70,8 +70,8 @@ export default function SideBar({ open, setOpen }) {
     { label: "Inventario",      icon: Boxes,        to: "/inventario" },
     { label: "Reportes",        icon: TrendingUp,   to: "/reportes" },
     { label: "Mov. efectivo",   icon: TrendingUp,   to: "/admin/movimientos-efectivo" },
-    // 👉 NUEVO: “Trabajadores”
     { label: "Trabajadores",    icon: Users,        to: "/admin/trabajadores" },
+    { label: "Facturación",     icon: FileText,     to: "/admin/facturacion" },
   ]), []);
 
   const handleLogout = useCallback(async () => {
