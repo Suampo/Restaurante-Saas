@@ -1,4 +1,3 @@
-// backend-facturacion/src/routes/debug.cpe.js
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
@@ -6,6 +5,9 @@ const { emitirInvoice, getEmisorByRestaurant } = require('../services/facturador
 
 const APISPERU_BASE = process.env.APISPERU_BASE || 'https://facturacion.apisperu.com/api/v1';
 
+// =========================
+// GET último CPE por pedido
+// =========================
 router.get('/cpe/by-pedido/:pedidoId', async (req, res) => {
   try {
     const pedidoId = Number(req.params.pedidoId);
@@ -18,6 +20,7 @@ router.get('/cpe/by-pedido/:pedidoId', async (req, res) => {
       .order('id', { ascending: false })
       .limit(1)
       .maybeSingle();
+
     if (error) throw error;
     if (!cpe) return res.json({ ok: false, error: 'Sin CPE para este pedido' });
 
@@ -27,6 +30,9 @@ router.get('/cpe/by-pedido/:pedidoId', async (req, res) => {
   }
 });
 
+// =========================
+// Reintentar envío de CPE
+// =========================
 router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -37,6 +43,7 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
       .select('*')
       .eq('id', cpeId)
       .maybeSingle();
+
     if (error) throw error;
     if (!cpe) throw new Error('CPE no encontrado');
 
@@ -50,10 +57,11 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
       resp?.sunat_response?.success ||
       resp?.sunatResponse?.success;
 
-    const hasError =
-      !!(resp?.error || resp?.sunat_response?.error || resp?.sunatResponse?.error);
+    const hasError = !!(
+      resp?.error || resp?.sunat_response?.error || resp?.sunatResponse?.error
+    );
 
-    const estado = success ? 'ACEPTADO' : (hasError ? 'RECHAZADO' : 'ENVIADO');
+    const estado = success ? 'ACEPTADO' : hasError ? 'RECHAZADO' : 'ENVIADO';
 
     const update = {
       estado,
@@ -64,17 +72,18 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
       digest: resp?.digestValue || null,
       sunat_ticket: resp?.ticket || null,
       sunat_notas:
-        (resp?.sunatResponse?.error?.message) ||
-        (resp?.sunat_response?.error?.message) ||
-        (resp?.error?.message) || null,
+        resp?.sunatResponse?.error?.message ||
+        resp?.sunat_response?.error?.message ||
+        resp?.error?.message || null,
       raw_response: resp,
     };
+
     await supabase.from('cpe_documents').update(update).eq('id', cpeId);
 
-    await supabase.from('pedidos').update({
-      cpe_id: cpeId,
-      sunat_estado: estado,
-    }).eq('id', cpe.pedido_id);
+    await supabase
+      .from('pedidos')
+      .update({ cpe_id: cpeId, sunat_estado: estado })
+      .eq('id', cpe.pedido_id);
 
     return res.json({ ok: true, update, pedido_id: cpe.pedido_id });
   } catch (e) {
@@ -82,6 +91,9 @@ router.post('/cpe/retry', express.json({ type: '*/*' }), async (req, res) => {
   }
 });
 
+// =========================
+// PDF STREAM directo
+// =========================
 router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -92,11 +104,13 @@ router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) =
       .select('id, restaurant_id, raw_request, serie, correlativo')
       .eq('id', cpeId)
       .maybeSingle();
+
     if (error) throw error;
     if (!cpe) throw new Error('CPE no encontrado');
 
     const emisor = await getEmisorByRestaurant(cpe.restaurant_id);
-    const token = (emisor.apiperu_company_token || process.env.APISPERU_FALLBACK_TOKEN || '').trim();
+    const token =
+      (emisor.apiperu_company_token || process.env.APISPERU_FALLBACK_TOKEN || '').trim();
 
     const r = await fetch(`${APISPERU_BASE}/invoice/pdf`, {
       method: 'POST',
@@ -109,9 +123,14 @@ router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) =
     });
 
     const buf = Buffer.from(await r.arrayBuffer());
+
     if (!r.ok) {
       let err;
-      try { err = JSON.parse(buf.toString('utf8')); } catch { err = { message: 'No se pudo generar PDF' }; }
+      try {
+        err = JSON.parse(buf.toString('utf8'));
+      } catch {
+        err = { message: 'No se pudo generar PDF' };
+      }
       return res.status(400).json({ ok: false, status: r.status, error: err });
     }
 
@@ -124,6 +143,9 @@ router.post('/cpe/pdf-stream', express.json({ type: '*/*' }), async (req, res) =
   }
 });
 
+// =========================
+// Guardar PDF en Storage (solo path)
+// =========================
 router.post('/cpe/pdf-save', express.json({ type: '*/*' }), async (req, res) => {
   try {
     const cpeId = Number(req.body.cpeId);
@@ -134,11 +156,13 @@ router.post('/cpe/pdf-save', express.json({ type: '*/*' }), async (req, res) => 
       .select('id, restaurant_id, raw_request, serie, correlativo')
       .eq('id', cpeId)
       .maybeSingle();
+
     if (error) throw error;
     if (!cpe) throw new Error('CPE no encontrado');
 
     const emisor = await getEmisorByRestaurant(cpe.restaurant_id);
-    const token = (emisor.apiperu_company_token || process.env.APISPERU_FALLBACK_TOKEN || '').trim();
+    const token =
+      (emisor.apiperu_company_token || process.env.APISPERU_FALLBACK_TOKEN || '').trim();
 
     const r = await fetch(`${APISPERU_BASE}/invoice/pdf`, {
       method: 'POST',
@@ -151,28 +175,73 @@ router.post('/cpe/pdf-save', express.json({ type: '*/*' }), async (req, res) => 
     });
 
     const buf = Buffer.from(await r.arrayBuffer());
+
     if (!r.ok) {
       let err;
-      try { err = JSON.parse(buf.toString('utf8')); } catch { err = { message: 'No se pudo generar PDF' }; }
+      try {
+        err = JSON.parse(buf.toString('utf8'));
+      } catch {
+        err = { message: 'No se pudo generar PDF' };
+      }
       return res.status(400).json({ ok: false, status: r.status, error: err });
     }
 
     const filename = `${cpe.serie}-${cpe.correlativo}.pdf`;
     const path = `${emisor.ruc}/${filename}`;
 
-    const { error: eUp } = await supabase
-      .storage
+    const { error: eUp } = await supabase.storage
       .from('cpe')
-      .upload(path, buf, { contentType: 'application/pdf', upsert: true });
+      .upload(path, buf, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
     if (eUp) throw eUp;
 
-    const { data: pub } = supabase.storage.from('cpe').getPublicUrl(path);
-    const pdfUrl = pub?.publicUrl || null;
+    // Guardamos solo el path interno
+    const pdfPath = path;
 
-    await supabase.from('cpe_documents').update({ pdf_url: pdfUrl }).eq('id', cpeId);
+    await supabase
+      .from('cpe_documents')
+      .update({ pdf_url: pdfPath })
+      .eq('id', cpeId);
 
-    return res.json({ ok: true, pdf_url: pdfUrl, storage_path: path });
+    return res.json({ ok: true, pdf_url: pdfPath, storage_path: pdfPath });
   } catch (e) {
+    return res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+// =========================
+// GET → Generar URL firmada del PDF
+// =========================
+router.get('/cpe/:cpeId/pdf', async (req, res) => {
+  try {
+    const cpeId = Number(req.params.cpeId);
+    if (!cpeId) throw new Error('cpeId inválido');
+
+    const { data: cpe, error } = await supabase
+      .from('cpe_documents')
+      .select('id, restaurant_id, pdf_url')
+      .eq('id', cpeId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!cpe) throw new Error('CPE no encontrado');
+    if (!cpe.pdf_url) throw new Error('CPE sin pdf_path almacenado');
+
+    const path = cpe.pdf_url;
+
+    const { data: signed, error: signedError } = await supabase.storage
+      .from('cpe')
+      .createSignedUrl(path, 60 * 5);
+
+    if (signedError) throw signedError;
+    if (!signed?.signedUrl) throw new Error('No se pudo generar URL firmada');
+
+    return res.redirect(signed.signedUrl);
+  } catch (e) {
+    console.error('Error en GET /cpe/:cpeId/pdf', e);
     return res.status(400).json({ ok: false, error: e.message });
   }
 });

@@ -1,32 +1,65 @@
+// src/controllers/menuImageController.js
 import { pool } from "../config/db.js";
 import { supabase } from "../config/supabase.js";
 import crypto from "crypto";
+import { fileTypeFromBuffer } from "file-type";
+import sharp from "sharp";
 
-const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex"));
+const uuid = () =>
+  (crypto.randomUUID
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString("hex"));
+
+const ALLOWED = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
 
 export const uploadMenuImage = async (req, res) => {
   try {
     const restaurantId = req.user.restaurantId;
     const { id } = req.params;
 
-    if (!req.file) return res.status(400).json({ error: "Falta el archivo 'image' en form-data" });
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: "Falta el archivo 'image' en form-data" });
+    }
+
+    // Verificación real de firma (no solo mimetype)
+    const ft = await fileTypeFromBuffer(req.file.buffer);
+    if (!ft || !ALLOWED.has(ft.mime)) {
+      return res.status(400).json({
+        error: "Archivo no es una imagen válida (jpg/png/webp/gif)",
+      });
+    }
 
     // item existe y es del restaurante
     const { rows } = await pool.query(
       "SELECT id, imagen_url FROM menu_items WHERE id = $1 AND restaurant_id = $2",
       [id, restaurantId]
     );
-    if (rows.length === 0) return res.status(404).json({ error: "Item no encontrado" });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Item no encontrado" });
+    }
+
+    // 🔁 Convertir SIEMPRE a WebP
+    const webpBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .webp({ quality: 80 })
+      .toBuffer();
 
     const bucket = process.env.SUPABASE_BUCKET_MENU || "menu-items";
-    const ext = (req.file.mimetype?.split("/")?.[1] || "jpg").replace("jpeg", "jpg");
+    const ext = "webp";
     const path = `restaurants/${restaurantId}/menu_items/${id}/${uuid()}.${ext}`;
 
     // Subida
     const { error: upErr } = await supabase.storage
       .from(bucket)
-      .upload(path, req.file.buffer, {
-        contentType: req.file.mimetype,
+      .upload(path, webpBuffer, {
+        contentType: "image/webp",
         upsert: true,
         cacheControl: "31536000",
       });

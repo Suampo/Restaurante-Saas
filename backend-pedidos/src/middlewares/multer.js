@@ -1,21 +1,16 @@
+// src/middlewares/multer.js
 import multer from "multer";
-import { fileTypeFromBuffer } from "file-type";
 
 const storage = multer.memoryStorage();
 
+// Tipos permitidos a nivel de cabecera. La verificación fuerte se hace en los controllers.
 const mimeAllow = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
-const fileFilter = async (req, file, cb) => {
-  try {
-    if (!mimeAllow.includes(file.mimetype)) return cb(new Error("Tipo MIME no permitido"), false);
-    // Verifica firma real
-    const buf = file.buffer || Buffer.alloc(0);
-    const ft = await fileTypeFromBuffer(buf);
-    if (!ft || !mimeAllow.includes(ft.mime)) return cb(new Error("Archivo no es imagen válida"), false);
-    cb(null, true);
-  } catch (e) {
-    cb(new Error("No se pudo validar el archivo"), false);
+const fileFilter = (req, file, cb) => {
+  if (!mimeAllow.includes(file.mimetype)) {
+    return cb(new Error("Tipo MIME no permitido"), false);
   }
+  cb(null, true);
 };
 
 export const upload = multer({

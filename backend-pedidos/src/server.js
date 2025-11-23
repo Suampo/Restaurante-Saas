@@ -36,7 +36,7 @@ import reportesRoutes from "./routes/reportesRoutes.js";
 import exportRoutes from "./routes/export.js";
 import staffRoutes from "./routes/staff.routes.js";
 
-
+import healthRoutes from "./routes/healthRoutes.js";
 /* ✅ INVENTARIO */
 import inventarioRoutes from "./routes/inventarioRoutes.js";
 
@@ -59,6 +59,20 @@ app.set("etag", false);
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "script-src-attr": ["'none'"],
+        "style-src": ["'self'"],  // 🚫 sin unsafe-inline
+        "img-src": ["'self'", "data:"],
+        "font-src": ["'self'", "https:", "data:"],
+        "object-src": ["'none'"],
+        "frame-ancestors": ["'self'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'self'"],
+      },
+    },
   })
 );
 
@@ -93,15 +107,23 @@ app.use(
 /* ===== Cookies antes de CSRF ===== */
 app.use(cookieParser());
 
-/* Siembra CSRF si falta (cookie legible por el front) */
+/**
+ * Siembra CSRF si falta (cookie legible por el front).
+ * ⚠️ IMPORTANTE:
+ * - No es cookie de sesión ni JWT, solo token CSRF para double-submit.
+ * - Se mantiene httpOnly: false de forma consciente, porque el front
+ *   debe leerla y enviarla en el header `x-csrf-token`.
+ * - Endurecida con sameSite, secure, path limitado y expiración.
+ */
 app.use((req, res, next) => {
   if (!req.cookies?.csrf_token) {
     const token = crypto.randomBytes(24).toString("hex");
     res.cookie("csrf_token", token, {
-      httpOnly: false,
+      httpOnly: false,                  // se acepta el riesgo (no es cookie de sesión)
       sameSite: "lax",
       secure: isProd,
-      path: "/",
+      path: "/api",                     // 🔒 solo se envía en rutas /api
+      maxAge: 1000 * 60 * 60 * 12,      // 🔒 12 horas (igual que en facturación)
     });
   }
   next();
@@ -207,6 +229,7 @@ app.use("/api/dev", devRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api", publicMenuV2Routes);   // GET /api/public/menu-v2
 app.use("/api", takeawayRoutes);
+app.use("/api", healthRoutes);
 
 /* ===== RUTAS PROTEGIDAS / MIXTAS ===== */
 // Pedidos: POST raíz público con rate-limit; resto con token
@@ -223,7 +246,9 @@ app.use("/api/pedidos", guardPedidos, pedidoRoutes);
 app.use("/api/inventario", requireDbToken, inventarioRoutes);
 
 // El resto protegido
-app.use("/api/auth", requireDbToken, authRoutes);
+//app.use("/api/auth", requireDbToken, authRoutes);
+app.use("/api/auth", authRoutes);
+
 app.use("/api/menu", requireDbToken, menuRoutes);
 app.use("/api/mesas", requireDbToken, mesaRoutes);
 app.use("/api/menu-item", requireDbToken, menuImageRoutes);
@@ -239,16 +264,25 @@ app.use("/admin", requireDbToken, adminCashRoutes);
 /* ===== Estáticos ===== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, "public")));
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "cocina.html"));
-});
 
 /* ===== 404 + errores ===== */
 app.use((req, res) => res.status(404).json({ error: "No encontrado" }));
+
 app.use((err, req, res, _next) => {
-  console.error("[ERR]", err.message);
-  res.status(err.status || 500).json({ error: err.status ? err.message : "Error interno" });
+  console.error("[ERR HANDLER]", {
+    message: err.message,
+    code: err.code,
+    stack: err.stack,
+    path: `${req.method} ${req.originalUrl}`,
+  });
+
+  if (res.headersSent) {
+    return;
+  }
+
+  res
+    .status(err.status || 500)
+    .json({ error: err.status ? err.message : "Error interno" });
 });
 
 /* ===== HTTP + Socket.IO ===== */

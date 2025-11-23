@@ -75,8 +75,13 @@ export const createMenuItem = async (req, res) => {
     const nombre = (req.body?.nombre || "").toString().trim();
     const descripcion = (req.body?.descripcion ?? null);
     const precio = num(req.body?.precio);
-    const categoriaId = req.body?.categoriaId !== undefined ? num(req.body.categoriaId) : null;
-
+const categoriaId = num(
+     req.body?.categoriaId !== undefined
+       ? req.body.categoriaId
+       : req.body?.categoria_id !== undefined
+       ? req.body.categoria_id
+       : null
+   );
     if (!nombre || precio === null || Number.isNaN(precio)) {
       return res.status(400).json({ error: "Faltan nombre o precio válido" });
     }

@@ -15,22 +15,75 @@ import {
 
 const app = express();
 
-/* ===== CORS ===== */
+/* ===== CORS (sin wildcard) ===== */
 const origins = (process.env.CORS_ORIGINS || "http://localhost:5173")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
+const corsOptions = {
+  origin(origin, cb) {
+    // Sin header Origin -> no se añade CORS (OK para curl/Postman/ZAP en modo raw)
+    if (!origin) return cb(null, false);
+
+    if (origins.includes(origin)) {
+      // reflejamos el origin, no "*" (evita alerta de ZAP)
+      return cb(null, origin);
+    }
+    return cb(new Error("CORS not allowed"), false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Idempotency-Key"],
+};
+
 app.disable("x-powered-by");
 app.set("etag", false);
 
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+/* ===== HELMET + CSP ===== */
 app.use(
-  cors({
-    origin: (origin, cb) => cb(null, !origin || origins.includes(origin)),
-    credentials: true,
+  helmet({
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    // Desactivamos la CSP por defecto de helmet;
+    // usaremos solo la política personalizada de abajo
+    contentSecurityPolicy: false,
   })
 );
-app.use(helmet());
+
+// CSP personalizada única para pasarela (ZAP friendly)
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      imgSrc: ["'self'", "data:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: [
+        "'self'",
+        "https://api.mercadopago.com",
+        "https://api.culqi.com",
+      ],
+      // Directivas sin fallback que ZAP quiere ver definidas
+      frameAncestors: ["'self'"], // anti-clickjacking
+      formAction: ["'self'"],     // restringe envío de formularios
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  })
+);
+
+// X-Content-Type-Options: nosniff (riesgo bajo #7)
+app.use(helmet.noSniff());
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -67,8 +120,6 @@ app.get("/__mpcheck", async (_, res) => {
 
 /* ===== DEBUG: credenciales por restaurantId (desde Supabase)
    GET /__mpcred?restaurantId=1
-   - Verifica que publicKey/accessToken existan y el token funcione.
-   - site_id debe ser MPE para Yape.
 ================================================================ */
 app.get("/__mpcred", async (req, res) => {
   try {
@@ -99,10 +150,10 @@ app.get("/__mpcred", async (req, res) => {
 
     res.json({
       restaurantId: rid,
-      publicKey_prefix: String(publicKey || "").slice(0, 8), // "TEST-" o "APP_USR"
-      accessToken_prefix: String(accessToken || "").slice(0, 7), // "TEST-" o "APP_USR"
-      http_status, // 200 si el access token es válido
-      site_id: me?.site_id, // Debe ser "MPE" para Yape
+      publicKey_prefix: String(publicKey || "").slice(0, 8),
+      accessToken_prefix: String(accessToken || "").slice(0, 7),
+      http_status,
+      site_id: me?.site_id,
       live_mode: me?.live_mode,
       status: me?.status,
       collector_id: me?.id,
@@ -113,9 +164,9 @@ app.get("/__mpcred", async (req, res) => {
 });
 
 /* ===== RUTAS bajo /api ===== */
-app.use("/api", mpPublic); // /api/psp/mp/public-key
-app.use("/api", mpPSP); // /api/psp/mp/preferences, /api/psp/mp/payments/*, /api/psp/mp/webhook
-app.use("/api", culqiPSP); // /api/psp/culqi/*
+app.use("/api", mpPublic);   // /api/psp/mp/public-key
+app.use("/api", mpPSP);      // /api/psp/mp/preferences, /api/psp/mp/payments/*, /api/psp/mp/webhook
+app.use("/api", culqiPSP);   // /api/psp/culqi/*
 
 /* ===== START ===== */
 const port = Number(process.env.PORT || 5500);

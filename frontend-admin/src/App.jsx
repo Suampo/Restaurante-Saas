@@ -17,6 +17,7 @@ import Trabajadores from "./pages/admin/Trabajadores";
 import AdminMovimientosEfectivo from "./pages/AdminMovimientosEfectivo";
 import CobroEfectivo from "./pages/CobroEfectivo";
 import MozoLayout from "./layouts/MozoLayout";
+import Facturacion from "./pages/Facturacion";
 
 function AppLayout() {
   const [open, setOpen] = useState(false);
@@ -87,6 +88,8 @@ export default function App() {
             <Route path="configuracion" element={<Configuracion />} />
             <Route path="admin/movimientos-efectivo" element={<AdminMovimientosEfectivo />} />
             <Route path="admin/trabajadores" element={<Trabajadores />} />
+            <Route path="/admin/facturacion" element={<Facturacion />} />
+
           </Route>
         </Route>
 

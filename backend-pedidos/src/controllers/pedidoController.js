@@ -1,116 +1,188 @@
 // src/controllers/pedidoController.js
 import { pool } from "../config/db.js";
-import { emitPedidoPagadoCompleto } from "../services/realtimeService.js";
+import {
+  emitPedidoPagadoCompleto,
+  emitirPedidoCocina,
+} from "../services/realtimeService.js";
+
+/* =============== HELPERS =============== */
 
 const getRestaurantIdLoose = (req) => {
-  const fromUser   = Number(req.user?.restaurantId || 0);
+  const fromUser = Number(req.user?.restaurantId || 0);
   const fromHeader = Number(req.get("x-restaurant-id") || 0);
-  const fromBody   = Number(req.body?.restaurantId || 0);
+  const fromBody = Number(req.body?.restaurantId || 0);
   return fromUser || fromHeader || fromBody || 0;
 };
 
-/** ========================
- *  GET /api/pedidos (admin)
- *  ======================== */
+const parseLimit = (v, def = 50, max = 100) => {
+  const n = Number(v);
+  if (Number.isNaN(n) || n <= 0) return def;
+  return Math.min(max, n);
+};
+
+const parseOffset = (v) => {
+  const n = Number(v);
+  if (Number.isNaN(n) || n < 0) return 0;
+  return n;
+};
+/* =============== GET /api/pedidos =============== */
+/**
+ * Listado para admin / cocina.
+ * Soporta:
+ *  - ?estado=pagado  o ?status=pagado
+ *  - ?from=ISO-8601  (UTC)
+ *  - ?to=ISO-8601    (UTC)
+ *  - ?limit=50&offset=0
+ */
 export const obtenerPedidos = async (req, res) => {
   try {
     const restaurantId = Number(req.user?.restaurantId);
-    const status = (req.query.status || "pagado").toLowerCase();
+    if (!restaurantId) {
+      return res
+        .status(400)
+        .json({ error: "restaurantId no detectado en el token" });
+    }
+
+    const statusRaw = (
+      req.query.estado ||
+      req.query.status ||
+      "pagado"
+    )
+      .toString()
+      .toLowerCase();
+
+    const limit = parseLimit(req.query.limit, 50, 100);
+    const offset = parseOffset(req.query.offset);
 
     const params = [restaurantId];
-    const condEstado = status !== "all" ? ` AND p.estado = $${params.push(status)}` : "";
+    let idx = 2;
+
+    // Filtro por estado
+    let condEstado = "";
+    if (statusRaw !== "all") {
+      condEstado = ` AND p.estado = $${idx++}`;
+      params.push(statusRaw);
+    }
+
+    // Filtro por rango de fechas (created_at en UTC)
+    let condFecha = "";
+    if (req.query.from) {
+      condFecha += ` AND p.created_at >= $${idx++}`;
+      params.push(req.query.from);
+    }
+    if (req.query.to) {
+      condFecha += ` AND p.created_at < $${idx++}`;
+      params.push(req.query.to);
+    }
+
+    // Paginación
+    const limitPos = idx++;
+    const offsetPos = idx++;
+    params.push(limit, offset);
 
     const sql = `
-      WITH items AS (
-        SELECT 
-          p.id AS pedido_id,
-          jsonb_build_object(
-            'tipo', 'item',
-            'nombre', mi.nombre,
-            'cantidad', pd.cantidad,
-            'precio_unitario', pd.precio_unitario,
-            'importe', (pd.cantidad * pd.precio_unitario)
-          ) AS item
-        FROM pedidos p
-        JOIN pedido_detalle pd ON pd.pedido_id = p.id
-        JOIN menu_items mi     ON mi.id = pd.menu_item_id
-        WHERE p.restaurant_id = $1 ${condEstado}
-          AND pd.menu_item_id IS NOT NULL
-
-        UNION ALL
-
-        SELECT
-          p.id AS pedido_id,
-          jsonb_build_object(
-            'tipo', 'combo',
-            'nombre', COALESCE(c.nombre, 'Combo #' || pd.combo_id::text),
-            'cantidad', pd.cantidad,
-            'precio_unitario', pd.precio_unitario,
-            'importe', (pd.cantidad * pd.precio_unitario)
-          ) AS item
-        FROM pedidos p
-        JOIN pedido_detalle pd ON pd.pedido_id = p.id
-        LEFT JOIN combos c     ON c.id = pd.combo_id
-        WHERE p.restaurant_id = $1 ${condEstado}
-          AND pd.combo_id IS NOT NULL
-      )
-      SELECT
+      SELECT 
         p.id,
-        p.order_no AS numero,
+        p.restaurant_id,
+        p.mesa_id,
+        p.order_no       AS numero,
         p.order_day,
         p.estado,
-        p.total AS monto,
+        p.total          AS monto,
         p.created_at,
-        p.note AS note,
+        p.note           AS note,
         COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
+
+        -- Items
         COALESCE(
-          (SELECT jsonb_agg(i.item) FROM items i WHERE i.pedido_id = p.id),
+          (
+            SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'tipo', CASE WHEN d.menu_item_id IS NOT NULL THEN 'item' ELSE 'combo' END,
+                       'nombre', COALESCE(mi.nombre, 'Combo #' || d.combo_id::text),
+                       'cantidad', d.cantidad,
+                       'precio_unitario', d.precio_unitario,
+                       'importe', d.cantidad * d.precio_unitario
+                     )
+                   )
+            FROM pedido_detalle d
+            LEFT JOIN menu_items mi ON mi.id = d.menu_item_id
+            WHERE d.pedido_id = p.id
+          ),
           '[]'::jsonb
-        ) AS items
+        ) AS items,
+
+        -- Pagos
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'id',         pg.id,
+                       'monto',      pg.monto,
+                       'metodo',     pg.metodo,
+                       'estado',     pg.estado,
+                       'approved_at',pg.approved_at
+                     )
+                   )
+            FROM pagos pg
+            WHERE pg.pedido_id = p.id
+          ),
+          '[]'::jsonb
+        ) AS pagos
+
       FROM pedidos p
-      JOIN mesas m ON m.id = p.mesa_id AND m.restaurant_id = p.restaurant_id
-      WHERE p.restaurant_id = $1 ${condEstado}
-      ORDER BY p.created_at DESC;
+      JOIN mesas m 
+        ON m.id = p.mesa_id 
+       AND m.restaurant_id = p.restaurant_id
+      WHERE p.restaurant_id = $1
+        ${condEstado}
+        ${condFecha}
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT $${limitPos}
+      OFFSET $${offsetPos};
     `;
 
     const { rows } = await pool.query(sql, params);
-    res.json(rows);
+    return res.json(rows);
   } catch (error) {
     console.error("obtenerPedidos:", error);
-    res.status(500).json({ error: "Error obteniendo pedidos" });
+    return res.status(500).json({ error: "Error obteniendo pedidos" });
   }
 };
 
-/** ========================
- *  POST /api/pedidos  (público con CSRF) / (admin con token)
- *  ======================== */
+/* =============== POST /api/pedidos =============== */
+
 export const crearPedido = async (req, res) => {
   const client = await pool.connect();
+  let pedidoKds = null;
+
   try {
     const restaurantId = getRestaurantIdLoose(req);
-    if (!restaurantId) return res.status(400).json({ error: "restaurantId requerido" });
+    if (!restaurantId) {
+      return res.status(400).json({ error: "restaurantId requerido" });
+    }
 
-    const mesaId         = Number(req.body?.mesaId || 0);
-    const items          = Array.isArray(req.body?.items) ? req.body.items : [];
+    const mesaId = Number(req.body?.mesaId || 0);
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
     const idempotencyKey = String(req.body?.idempotencyKey || "");
 
-    // Facturación opcional
-    const comprobanteTipo = req.body?.comprobanteTipo || null; // "01" | "03" | null
-    const billingClient   = req.body?.billingClient ?? null;   // json
-    const billingEmail    = (req.body?.billingEmail || "").trim() || null;
+    const comprobanteTipo = req.body?.comprobanteTipo || null;
+    const billingClient = req.body?.billingClient ?? null;
+    const billingEmail = (req.body?.billingEmail || "").trim() || null;
 
-    // Nota para cocina (opcional)
-    const note = typeof req.body?.note === "string"
-      ? req.body.note.trim().slice(0, 300)
-      : null;
+    const note =
+      typeof req.body?.note === "string"
+        ? req.body.note.trim().slice(0, 300)
+        : null;
 
     if (!mesaId) return res.status(400).json({ error: "Falta mesaId" });
-    if (!idempotencyKey) return res.status(400).json({ error: "Falta idempotencyKey" });
+    if (!idempotencyKey)
+      return res.status(400).json({ error: "Falta idempotencyKey" });
     if (!items.length) return res.status(400).json({ error: "Carrito vacío" });
 
     await client.query("BEGIN");
 
-    // 1) Mesa válida (sin anular pedidos previos)
+    // 1) Validar mesa (y quedarnos con el código para el KDS)
     const mesaQ = await client.query(
       `SELECT id, UPPER(codigo) AS codigo
          FROM public.mesas
@@ -118,9 +190,92 @@ export const crearPedido = async (req, res) => {
         FOR SHARE`,
       [mesaId, restaurantId]
     );
-    if (!mesaQ.rows.length) throw new Error("Mesa no válida");
+    if (!mesaQ.rows.length) {
+      throw new Error("Mesa no válida");
+    }
+    const mesaCodigo = mesaQ.rows[0].codigo || `MESA ${mesaId}`;
 
-    // 2) Inserta pedido idempotente (NO se cancela nada existente)
+    // 2) Pre-calcular todos los IDs usados en el carrito
+    const menuItemIdSet = new Set();
+    const comboIdSet = new Set();
+
+    for (const raw of items) {
+      const comboId = Number(raw.combo_id || raw.comboId || 0);
+      const menuItemId = Number(
+        raw.menu_item_id || raw.menuItemId || raw.id || 0
+      );
+      if (comboId) comboIdSet.add(comboId);
+      if (menuItemId) menuItemIdSet.add(menuItemId);
+
+      const entradaId = Number(raw.entradaId || raw.entrada?.id || 0);
+      const platoId = Number(raw.platoId || raw.plato?.id || 0);
+      if (entradaId) menuItemIdSet.add(entradaId);
+      if (platoId) menuItemIdSet.add(platoId);
+
+      const gruposSel = Array.isArray(raw.grupos) ? raw.grupos : [];
+      for (const g of gruposSel) {
+        const itemsSel = Array.isArray(g.items) ? g.items : [];
+        for (const chosen of itemsSel) {
+          const mid = Number(chosen.id || chosen.menu_item_id || 0);
+          if (mid) menuItemIdSet.add(mid);
+        }
+      }
+    }
+
+    // 3) Cargar precios de menu_items y combos en UNA sola pasada
+    const menuItemsMap = new Map();
+    if (menuItemIdSet.size) {
+      const ids = Array.from(menuItemIdSet);
+      const q = await client.query(
+        `SELECT id, nombre, precio
+           FROM public.menu_items
+          WHERE restaurant_id=$1
+            AND id = ANY($2::int[])
+            AND activo = TRUE`,
+        [restaurantId, ids]
+      );
+      for (const row of q.rows) {
+        menuItemsMap.set(row.id, {
+          nombre: row.nombre,
+          precio: Number(row.precio || 0),
+        });
+      }
+    }
+
+    const combosMap = new Map();
+    const comboGruposMap = new Map(); // { combo_id -> { entrada, plato } }
+    if (comboIdSet.size) {
+      const cids = Array.from(comboIdSet);
+      const qc = await client.query(
+        `SELECT id, nombre, precio
+           FROM public.combos
+          WHERE restaurant_id=$1
+            AND id = ANY($2::int[])
+            AND activo = TRUE`,
+        [restaurantId, cids]
+      );
+      for (const row of qc.rows) {
+        combosMap.set(row.id, {
+          nombre: row.nombre,
+          precio: Number(row.precio || 0),
+        });
+      }
+
+      const qg = await client.query(
+        `SELECT id, combo_id, nombre_grupo
+           FROM public.combo_grupos
+          WHERE combo_id = ANY($1::int[])`,
+        [cids]
+      );
+      for (const row of qg.rows) {
+        const entry = comboGruposMap.get(row.combo_id) || {};
+        if (row.nombre_grupo === "Entrada") entry.entrada = row.id;
+        if (row.nombre_grupo === "Plato") entry.plato = row.id;
+        comboGruposMap.set(row.combo_id, entry);
+      }
+    }
+
+    // 4) Insertar pedido idempotente
     const ped = await client.query(
       `INSERT INTO public.pedidos (
          restaurant_id, mesa_id, total, estado, created_at, idempotency_key,
@@ -129,12 +284,20 @@ export const crearPedido = async (req, res) => {
        VALUES ($1,$2,0,'pendiente_pago',NOW(),$3,$4,$5,$6,$7)
        ON CONFLICT (restaurant_id, idempotency_key)
        DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
-       RETURNING id, comprobante_tipo, billing_client, billing_email, note`,
-      [restaurantId, mesaId, idempotencyKey, comprobanteTipo, billingClient, billingEmail, note]
+       RETURNING id, total, created_at, estado`,
+      [
+        restaurantId,
+        mesaId,
+        idempotencyKey,
+        comprobanteTipo,
+        billingClient,
+        billingEmail,
+        note,
+      ]
     );
     const pedidoId = ped.rows[0].id;
 
-    // 3) Idempotencia: si ya hay detalle, devolvemos el total existente
+    // 5) Si ya tenía detalle, devolvemos total existente (idempotente)
     const detCount = await client.query(
       `SELECT COUNT(*)::int AS c FROM public.pedido_detalle WHERE pedido_id = $1`,
       [pedidoId]
@@ -161,6 +324,7 @@ export const crearPedido = async (req, res) => {
       );
 
       await client.query("COMMIT");
+
       return res.status(200).json({
         mensaje: "Pedido ya existía (idempotente)",
         pedidoId,
@@ -170,39 +334,52 @@ export const crearPedido = async (req, res) => {
       });
     }
 
-    // 4) Inserta detalle (combos / items)
+    // 6) Insertar detalle & armar snapshot para KDS
     let total = 0;
-    for (const it of items) {
-      const cantidad   = Math.max(1, Number(it.cantidad || it.qty || 1));
-      const menuItemId = Number(it.menu_item_id || it.menuItemId || it.id || 0);
-      const comboId    = Number(it.combo_id || it.comboId || 0);
+    const kdsItems = [];
 
+    for (const it of items) {
+      const cantidad = Math.max(1, Number(it.cantidad || it.qty || 1));
+      const menuItemId = Number(
+        it.menu_item_id || it.menuItemId || it.id || 0
+      );
+      const comboId = Number(it.combo_id || it.comboId || 0);
+
+      // --- Combos ---
       if (comboId) {
-        const comboQ = await client.query(
-          `SELECT precio FROM public.combos WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
-          [comboId, restaurantId]
-        );
-        if (!comboQ.rows.length) throw new Error("Combo no válido");
-        const precioUnit = Number(comboQ.rows[0].precio || 0);
+        const comboInfo = combosMap.get(comboId);
+        if (!comboInfo) throw new Error("Combo no válido");
+
+        const precioUnit = comboInfo.precio;
         total += precioUnit * cantidad;
 
         const detIns = await client.query(
-          `INSERT INTO public.pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
+          `INSERT INTO public.pedido_detalle
+             (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
            VALUES ($1, NULL, $2, $3, $4)
            RETURNING id`,
           [pedidoId, comboId, cantidad, precioUnit]
         );
         const pedidoDetalleId = detIns.rows[0].id;
 
+        // kds item
+        kdsItems.push({
+          tipo: "combo",
+          nombre: comboInfo.nombre || `Combo #${comboId}`,
+          cantidad,
+          precio_unitario: precioUnit,
+        });
+
+        // Combos con grupos seleccionados explícitamente
         const gruposSel = Array.isArray(it.grupos) ? it.grupos : [];
         if (gruposSel.length) {
           for (const g of gruposSel) {
             const gid = Number(g.grupoId || g.id || 0);
             const itemsSel = Array.isArray(g.items) ? g.items : [];
+            const tipoV2 = gid ? `g${gid}` : "grupo";
             for (const chosen of itemsSel) {
               const mid = Number(chosen.id || chosen.menu_item_id || 0);
               if (!mid || !gid) continue;
-              const tipoV2 = `g${gid}`;
               await client.query(
                 `INSERT INTO public.pedido_detalle_combo_items
                    (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
@@ -212,66 +389,62 @@ export const crearPedido = async (req, res) => {
             }
           }
         } else {
+          // Compat: combos "Entrada / Plato"
+          const grupos = comboGruposMap.get(comboId) || {};
           const entradaId = Number(it.entradaId || it.entrada?.id || 0);
-          const platoId   = Number(it.platoId   || it.plato?.id   || 0);
+          const platoId = Number(it.platoId || it.plato?.id || 0);
 
-          if (entradaId) {
-            const qg = await client.query(
-              `SELECT id FROM public.combo_grupos WHERE combo_id=$1 AND nombre_grupo='Entrada' LIMIT 1`,
-              [comboId]
+          if (entradaId && grupos.entrada) {
+            await client.query(
+              `INSERT INTO public.pedido_detalle_combo_items
+                 (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
+               VALUES ($1, $2, $3, 'entrada')`,
+              [pedidoDetalleId, entradaId, grupos.entrada]
             );
-            const gid = qg.rows[0]?.id || null;
-            if (gid) {
-              await client.query(
-                `INSERT INTO public.pedido_detalle_combo_items
-                   (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
-                 VALUES ($1, $2, $3, 'entrada')`,
-                [pedidoDetalleId, entradaId, gid]
-              );
-            }
           }
 
-          if (platoId) {
-            const qg = await client.query(
-              `SELECT id FROM public.combo_grupos WHERE combo_id=$1 AND nombre_grupo='Plato' LIMIT 1`,
-              [comboId]
+          if (platoId && grupos.plato) {
+            await client.query(
+              `INSERT INTO public.pedido_detalle_combo_items
+                 (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
+               VALUES ($1, $2, $3, 'plato')`,
+              [pedidoDetalleId, platoId, grupos.plato]
             );
-            const gid = qg.rows[0]?.id || null;
-            if (gid) {
-              await client.query(
-                `INSERT INTO public.pedido_detalle_combo_items
-                   (pedido_detalle_id, menu_item_id, combo_grupo_id, tipo)
-                 VALUES ($1, $2, $3, 'plato')`,
-                [pedidoDetalleId, platoId, gid]
-              );
-            }
           }
         }
+
         continue;
       }
 
+      // --- Items sueltos ---
       if (menuItemId) {
-        const pr = await client.query(
-          `SELECT precio FROM public.menu_items WHERE id=$1 AND restaurant_id=$2 AND activo=TRUE`,
-          [menuItemId, restaurantId]
-        );
-        if (!pr.rows.length) throw new Error("Item no válido");
+        const miInfo = menuItemsMap.get(menuItemId);
+        if (!miInfo) throw new Error("Item no válido");
 
-        const precioUnit = Number(pr.rows[0].precio || 0);
+        const precioUnit = miInfo.precio;
         total += precioUnit * cantidad;
 
         await client.query(
-          `INSERT INTO public.pedido_detalle (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
+          `INSERT INTO public.pedido_detalle
+             (pedido_id, menu_item_id, combo_id, cantidad, precio_unitario)
            VALUES ($1, $2, NULL, $3, $4)`,
           [pedidoId, menuItemId, cantidad, precioUnit]
         );
+
+        kdsItems.push({
+          tipo: "item",
+          nombre: miInfo.nombre,
+          cantidad,
+          precio_unitario: precioUnit,
+        });
+
         continue;
       }
 
       throw new Error("Item inválido");
     }
 
-    // 5) Actualiza total + billing + nota
+    // 7) Actualizar total + datos de facturación
     await client.query(
       `UPDATE public.pedidos
           SET total=$1,
@@ -284,8 +457,30 @@ export const crearPedido = async (req, res) => {
       [total, comprobanteTipo, billingClient, billingEmail, pedidoId, note]
     );
 
+    // 8) Construir snapshot para KDS SIN tocar otra vez la BD
+    pedidoKds = {
+      id: pedidoId,
+      restaurant_id: restaurantId,
+      numero: null, // el KDS puede usar id si no hay order_no
+      estado: "pendiente_pago",
+      monto: total,
+      created_at: new Date().toISOString(),
+      mesa: mesaCodigo,
+      items: kdsItems,
+    };
+
     await client.query("COMMIT");
-    res.status(201).json({
+
+    // 9) Emitir a KDS fuera de la transacción
+    if (pedidoKds) {
+      try {
+        emitirPedidoCocina(pedidoKds);
+      } catch (e) {
+        console.warn("[emitirPedidoCocina] warn:", e.message);
+      }
+    }
+
+    return res.status(201).json({
       mensaje: "Pedido creado",
       pedidoId,
       total,
@@ -293,30 +488,35 @@ export const crearPedido = async (req, res) => {
       currency: "PEN",
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rbErr) {
+      console.error("❌ Error en ROLLBACK:", rbErr.message);
+    }
 
-    // Solo idempotencia u otros UNIQUE reales (p.ej. (restaurant_id, idempotency_key))
     if (error?.code === "23505") {
       return res.status(409).json({ error: "Conflicto de unicidad", detail: error.detail });
     }
 
     console.error("❌ crearPedido:", error);
-    res.status(500).json({ error: "Error creando pedido" });
+    return res.status(500).json({ error: "Error creando pedido" });
   } finally {
     client.release();
   }
 };
 
-/** ========================
- *  PATCH /api/pedidos/:id  (admin)
- *  ======================== */
+/* =============== PATCH /api/pedidos/:id =============== */
+
 export const actualizarPedidoEstado = async (req, res) => {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
+
     const pedidoId = Number(req.params?.id);
     const { estado } = req.body;
 
-    if (!pedidoId) return res.status(400).json({ error: "Falta el ID del pedido en la URL" });
+    if (!pedidoId)
+      return res.status(400).json({ error: "Falta el ID del pedido en la URL" });
 
     const allowed = ["pendiente_pago", "pagado", "anulado"];
     if (!estado || !allowed.includes(estado)) {
@@ -353,26 +553,37 @@ export const actualizarPedidoEstado = async (req, res) => {
     const updated = q1.rows[0];
 
     if (estado === "pagado") {
-      try {
-        await emitPedidoPagadoCompleto(updated.restaurant_id, pedidoId);
-      } catch (e) {
-        console.warn("[emitPedidoPagadoCompleto] warn:", e.message);
-      }
+      (async () => {
+        try {
+          await emitPedidoPagadoCompleto(updated.restaurant_id, pedidoId);
+        } catch (e) {
+          console.warn("[emitPedidoPagadoCompleto] warn:", e.message);
+        }
+      })();
     }
 
-    res.json(updated);
+    return res.json(updated);
   } catch (e) {
-    await client.query("ROLLBACK");
-    console.error("actualizarPedidoEstado:", e);
-    res.status(500).json({ error: "No se pudo actualizar el estado del pedido" });
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rErr) {
+        console.error("ROLLBACK error:", rErr.message);
+      }
+    }
+    console.error("actualizarPedidoEstado:", {
+      message: e.message,
+      code: e.code,
+      stack: e.stack,
+    });
+    return res.status(500).json({ error: "No se pudo actualizar el estado del pedido" });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 };
 
-/** ========================
- *  GET /api/pedidos/admin/recent?limit=10
- *  ======================== */
+/* =============== GET /api/pedidos/admin/recent =============== */
+
 export const obtenerPedidosRecientes = async (req, res) => {
   try {
     const restaurantId = Number(req.user?.restaurantId);
@@ -412,6 +623,8 @@ export const obtenerPedidosRecientes = async (req, res) => {
     return res.status(500).json({ error: "No se pudo obtener pedidos recientes" });
   }
 };
+
+/* =============== GET /api/pedidos/admin/stats/sales-by-day =============== */
 
 export const ventasPorDia = async (req, res) => {
   try {

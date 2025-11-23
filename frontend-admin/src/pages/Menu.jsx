@@ -104,71 +104,81 @@ export default function Menu() {
   return (
     <div className="py-6">
       <div className="mx-auto w-full max-w-7xl px-4">
-        {/* Header + toolbar */}
+        {/* Header */}
         <div className="mb-3">
           <MenuHeader query={query} setQuery={setQuery} onNew={openCreate} />
-
-          {/* Toolbar en una sola fila (con wrap) */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <div className="text-sm text-slate-600">
-              <strong>{total}</strong> platos <span className="mx-1">•</span> <strong>{visibles}</strong> visibles
-            </div>
-
-            <div className="ml-auto inline-flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
-                <span className="hidden sm:inline text-slate-600">Mostrar</span>
-                <label htmlFor="perpage" className="sr-only">Items por página</label>
-                <select
-                  id="perpage"
-                  value={limit}
-                  onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
-                  className="hidden sm:block rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-                >
-                  {[8, 12, 16, 24, 32, 48].map((n) => <option key={n} value={n}>{n} / pág.</option>)}
-                </select>
-
-                <button
-                  onClick={goPrev}
-                  className="rounded-md border border-slate-200 bg-white p-2 sm:p-1 hover:bg-slate-50"
-                  title="Anterior"
-                  aria-label="Página anterior"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <div className="min-w-[88px] text-center text-slate-700">
-                  Pág. <strong>{page || 1}</strong> / {totalPages}
-                </div>
-                <button
-                  onClick={goNext}
-                  className="rounded-md border border-slate-200 bg-white p-2 sm:p-1 hover:bg-slate-50"
-                  title="Siguiente"
-                  aria-label="Página siguiente"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-
-              <button
-                onClick={exportCSV}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 sm:px-3 sm:py-2 text-sm hover:bg-slate-50"
-                title="Exportar CSV"
-                aria-label="Exportar CSV"
-              >
-                <Download size={16} />
-                <span className="hidden sm:inline">Exportar</span>
-              </button>
-            </div>
+          <div className="mt-1 text-sm text-slate-600">
+            <strong>{total}</strong> platos <span className="mx-1">•</span>{" "}
+            <strong>{visibles}</strong> visibles
           </div>
         </div>
 
         {/* Gestores */}
         <div className="mb-6">
-          {/* Si tu CategoriesManager soporta "items", lo mantenemos; si no, puedes quitar "items={categories}" */}
-          <CategoriesManager items={categories} onChange={setCategories} />
+          <CategoriesManager onChange={setCategories} />
         </div>
 
         <div className="mb-6">
           <ComboManager cats={categories} />
+        </div>
+
+        {/* 👇 Barra de paginación y export justo encima del GRID */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="text-sm text-slate-600">
+            Página <strong>{page || 1}</strong> de {totalPages}
+          </div>
+
+          <div className="ml-auto inline-flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm">
+              <span className="hidden sm:inline text-slate-600">Mostrar</span>
+              <label htmlFor="perpage" className="sr-only">
+                Items por página
+              </label>
+              <select
+                id="perpage"
+                value={limit}
+                onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
+              >
+                {/* 👇 añadí 4 por página */}
+                {[4, 8, 12, 16, 24, 32, 48].map((n) => (
+                  <option key={n} value={n}>
+                    {n} / pág.
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={goPrev}
+                className="rounded-md border border-slate-200 bg-white p-2 sm:p-1 hover:bg-slate-50"
+                title="Anterior"
+                aria-label="Página anterior"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <div className="min-w-[88px] text-center text-slate-700">
+                Pág. <strong>{page || 1}</strong> / {totalPages}
+              </div>
+              <button
+                onClick={goNext}
+                className="rounded-md border border-slate-200 bg-white p-2 sm:p-1 hover:bg-slate-50"
+                title="Siguiente"
+                aria-label="Página siguiente"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <button
+              onClick={exportCSV}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 sm:px-3 sm:py-2 text-sm hover:bg-slate-50"
+              title="Exportar CSV"
+              aria-label="Exportar CSV"
+            >
+              <Download size={16} />
+              <span className="hidden sm:inline">Exportar</span>
+            </button>
+          </div>
         </div>
 
         {/* GRID */}
@@ -188,8 +198,8 @@ export default function Menu() {
                   item={it}
                   categoryName={catNameById[catId] || "Sin categoría"}
                   onEdit={openEdit}
-                  onDelete={handleDelete}       // <- envuelto (notifica)
-                  onToggleActive={handleToggle} // <- envuelto (notifica)
+                  onDelete={handleDelete}
+                  onToggleActive={handleToggle}
                 />
               );
             })}
@@ -218,7 +228,10 @@ export default function Menu() {
               <MenuItemEdit item={editing} onSave={handleSave} categorias={categories} />
             </div>
             <div className="flex justify-end gap-2 border-t p-3">
-              <button className="rounded-lg px-4 py-2 text-sm hover:bg-neutral-100" onClick={closeModal}>
+              <button
+                className="rounded-lg px-4 py-2 text-sm hover:bg-neutral-100"
+                onClick={closeModal}
+              >
                 Cerrar
               </button>
             </div>
@@ -233,7 +246,10 @@ function GridSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="animate-pulse overflow-hidden rounded-2xl bg-white shadow ring-1 ring-black/5">
+        <div
+          key={i}
+          className="animate-pulse overflow-hidden rounded-2xl bg-white shadow ring-1 ring-black/5"
+        >
           <div className="h-52 bg-neutral-200" />
           <div className="space-y-2 p-4">
             <div className="h-4 w-2/3 bg-neutral-200" />
