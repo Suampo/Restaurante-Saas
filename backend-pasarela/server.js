@@ -23,20 +23,25 @@ const origins = (process.env.CORS_ORIGINS || "http://localhost:5173")
 
 const corsOptions = {
   origin(origin, cb) {
-    // Sin header Origin -> no se añade CORS (OK para curl/Postman/ZAP en modo raw)
     if (!origin) return cb(null, false);
 
     if (origins.includes(origin)) {
-      // reflejamos el origin, no "*" (evita alerta de ZAP)
       return cb(null, origin);
     }
     return cb(new Error("CORS not allowed"), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Idempotency-Key"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Idempotency-Key",
+    "x-csrf-token",
+    "X-Device-Session-Id",
+    "X-Device-Id",
+    "X-meli-session-id",
+  ],
 };
-
 app.disable("x-powered-by");
 app.set("etag", false);
 

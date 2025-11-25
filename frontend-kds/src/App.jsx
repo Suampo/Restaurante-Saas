@@ -5,7 +5,13 @@ import { io } from "socket.io-client";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:4000";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 const TZ = "America/Lima";
-
+const parseJwt = (t) => {
+  try {
+    return JSON.parse(atob(String(t).split(".")[1]));
+  } catch {
+    return {};
+  }
+};
 /* ========================
  * Helpers
  * ======================== */
@@ -19,14 +25,31 @@ const getCsrfToken = () => {
 
 // Intentamos leer auth guardado (token + user) del localStorage
 function getInitialAuth() {
+  // 1) Preferimos lo que ya está guardado (login previo por correo/clave)
   try {
     const raw = localStorage.getItem("kitchenAuth");
-    if (!raw) return { token: "", user: null };
-    return JSON.parse(raw);
-  } catch {
-    return { token: "", user: null };
+    if (raw) return JSON.parse(raw);
+  } catch {}
+
+  // 2) Si no hay nada guardado, pero hay token de servicio en .env, lo usamos
+  const envToken = import.meta.env.VITE_KDS_TOKEN || "";
+  if (envToken) {
+    const payload = parseJwt(envToken);
+    const restaurantId = payload.restaurantId ?? payload.restaurant_id ?? "?";
+
+    const user = {
+      restaurantId,
+      nombre: "Cocina",
+      email: "",
+    };
+
+    return { token: envToken, user };
   }
+
+  // 3) Sin nada → sin auth (se mostrará la pantalla de login normal)
+  return { token: "", user: null };
 }
+
 
 // Hora HH:mm en Lima
 function formatHoraPedido(createdAt) {
@@ -39,6 +62,43 @@ function formatHoraPedido(createdAt) {
     hour12: false,
     timeZone: TZ,
   }).format(d);
+}
+
+// Intenta leer el método de pago desde distintas propiedades del pedido
+function getMetodoPago(pedido) {
+  return (
+    pedido.metodo_pago ||
+    pedido.metodo ||
+    pedido.payment_method ||
+    pedido.payment_type ||
+    pedido.medio_pago ||
+    pedido.payment_method_id ||
+    ""
+  );
+}
+
+// Regla de visibilidad para el KDS:
+// - Mostrar todos los pedidos con estado "pagado"
+// - Mostrar pedidos "pendiente_pago" SOLO si el método de pago es efectivo
+function isPedidoVisibleEnKds(pedido) {
+  const estado = String(pedido.estado || "").toLowerCase();
+  const metodo = String(getMetodoPago(pedido) || "").toLowerCase();
+
+  // siempre mostrar pagados
+  if (estado === "pagado") return true;
+
+  const esPendiente =
+    estado === "pendiente_pago" ||
+    estado === "pendiente de pago" ||
+    estado === "pendiente";
+
+  const esEfectivo = metodo === "efectivo" || metodo === "cash";
+
+  // pendiente + efectivo => visible
+  if (esPendiente && esEfectivo) return true;
+
+  // todo lo demás no se muestra en el KDS
+  return false;
 }
 
 // Badge sencillo
@@ -231,7 +291,32 @@ function KdsLoginScreen({ onLogin, error, estado }) {
 }
 
 function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
-  const isPagado = String(pedido.estado).toLowerCase() === "pagado";
+  const estadoLower = String(pedido.estado || "").toLowerCase();
+  const metodoPago = getMetodoPago(pedido);
+  const metodoLower = String(metodoPago || "").toLowerCase();
+
+  const isPagado = estadoLower === "pagado";
+  const esPendiente =
+    estadoLower === "pendiente_pago" ||
+    estadoLower === "pendiente de pago" ||
+    estadoLower === "pendiente";
+  const isPendienteEfectivo =
+    esPendiente && (metodoLower === "efectivo" || metodoLower === "cash");
+
+  let estadoLabel;
+  let estadoTone;
+
+  if (isPagado) {
+    estadoLabel = "Pagado";
+    estadoTone = "success";
+  } else if (isPendienteEfectivo) {
+    estadoLabel = "Pendiente pago (efectivo)";
+    estadoTone = "warning";
+  } else {
+    estadoLabel = pedido.estado || "Estado";
+    estadoTone = "muted";
+  }
+
   const hora = formatHoraPedido(pedido.created_at);
   const cocinaLabel =
     kitchenState === "entregado" ? "Cocina: Entregado" : "Cocina: En preparación";
@@ -280,14 +365,14 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <StatusBadge
-            label={isPagado ? "Pagado" : "Pendiente de pago"}
-            tone={isPagado ? "success" : "warning"}
-          />
+          <StatusBadge label={estadoLabel} tone={estadoTone} />
           <StatusBadge
             label={cocinaLabel}
             tone={kitchenState === "entregado" ? "info" : "muted"}
           />
+          {(metodoLower === "efectivo" || metodoLower === "cash") && (
+            <StatusBadge label="💵 Pago en efectivo" tone="info" />
+          )}
         </div>
       </div>
 
@@ -358,7 +443,8 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
             padding: "8px 16px",
             borderRadius: 999,
             border: "none",
-            backgroundColor: kitchenState === "entregado" ? "#E5E7EB" : "#10B981",
+            backgroundColor:
+              kitchenState === "entregado" ? "#E5E7EB" : "#10B981",
             color: kitchenState === "entregado" ? "#374151" : "white",
             fontSize: 13,
             fontWeight: 600,
@@ -448,13 +534,16 @@ function KdsDisplayScreen({
           </div>
 
           <div
-            style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
           >
             {/* Estado socket */}
             <StatusBadge
-              label={
-                error && !isConnected ? `${estado} (${error})` : estado
-              }
+              label={error && !isConnected ? `${estado} (${error})` : estado}
               tone={isConnected ? "success" : "warning"}
             />
             {/* Usuario */}
@@ -560,24 +649,29 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    const socket = io(SOCKET_URL, {
+       const socket = io(SOCKET_URL, {
       transports: ["websocket"],
       auth: { token },
+      extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
     setEstado("Conectando…");
     setError("");
 
-    // utilitario para hacer upsert de un pedido
+    // utilitario para hacer upsert de un pedido,
+    // respetando la regla de visibilidad del KDS
     const upsertPedido = (pedido) => {
       setPedidos((prev) => {
-        const idx = prev.findIndex((p) => p.id === pedido.id);
-        if (idx === -1) {
-          return [pedido, ...prev];
+        // quitamos cualquier versión anterior
+        const without = prev.filter((p) => p.id !== pedido.id);
+
+        // si NO debe verse, lo eliminamos de la lista
+        if (!isPedidoVisibleEnKds(pedido)) {
+          return without;
         }
-        const clone = [...prev];
-        clone[idx] = { ...clone[idx], ...pedido };
-        return clone;
+
+        // si debe verse, lo agregamos al inicio
+        return [pedido, ...without];
       });
     };
 
@@ -601,10 +695,15 @@ function App() {
     // Lista inicial de pedidos
     socket.on("init_pedidos", (lista) => {
       const arr = Array.isArray(lista) ? lista : [];
-      setPedidos(arr);
+
+      // solo pedidos "pagado" o "pendiente_pago" efectivo
+      const visibles = arr.filter(isPedidoVisibleEnKds);
+
+      setPedidos(visibles);
+
       // todos empiezan "En preparación" en la vista de cocina
       const initialStates = {};
-      for (const p of arr) {
+      for (const p of visibles) {
         initialStates[p.id] = "preparacion";
       }
       setKitchenStateMap(initialStates);
@@ -620,7 +719,7 @@ function App() {
       }));
     });
 
-    // Pedido pagado
+    // Pedido pagado (tarjeta/MP o efectivo)
     socket.on("pedido_pagado", (pedido) => {
       console.log("📥 pedido_pagado", pedido);
       upsertPedido(pedido);

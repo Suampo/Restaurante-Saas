@@ -3,26 +3,48 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { signDbToken } from "../auth/signDbToken.js";
 
-const DB_SECRET    = process.env.SUPABASE_JWT_SECRET || "dev_admin_secret";
-const ADMIN_SECRET = process.env.JWT_ADMIN_SECRET   || DB_SECRET;
-const COOKIE_NAME  = process.env.AUTH_COOKIE_NAME   || "admin_session";
-const IS_PROD      = String(process.env.NODE_ENV).toLowerCase() === "production";
+const IS_PROD =
+  String(process.env.NODE_ENV || "development").toLowerCase() === "production";
+
+// 🔐 Secretos base
+const DB_SECRET =
+  process.env.SUPABASE_JWT_SECRET ||
+  (!IS_PROD ? "dev_admin_secret" : null);
+
+// En prod, exigimos SUPABASE_JWT_SECRET
+if (IS_PROD && !process.env.SUPABASE_JWT_SECRET) {
+  throw new Error(
+    "SUPABASE_JWT_SECRET requerido en producción (dbToken/cookie admin)"
+  );
+}
+
+// Cookie admin puede reutilizar DB_SECRET o un JWT_ADMIN_SECRET distinto
+const ADMIN_SECRET = process.env.JWT_ADMIN_SECRET || DB_SECRET;
+const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "admin_session";
 
 function extractClaims(payload) {
-  const restaurantId = Number(payload?.restaurantId ?? payload?.restaurant_id ?? 0);
+  const restaurantId = Number(
+    payload?.restaurantId ?? payload?.restaurant_id ?? 0
+  );
   const email = payload?.email || payload?.sub || null;
   const type = payload?.type || "admin";
   return { restaurantId, email, type };
 }
 
 function setSessionCookie(res, payload) {
-  const token = jwt.sign(payload, ADMIN_SECRET, { expiresIn: "7d" });
+  // ⏱ Cookie de 3 días (antes 7d)
+  const expiresSeconds = 3 * 24 * 60 * 60;
+
+  const token = jwt.sign(payload, ADMIN_SECRET, {
+    expiresIn: expiresSeconds,
+  });
 
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: IS_PROD, // en dev, false para http://localhost
     path: "/",
+    maxAge: expiresSeconds * 1000,
     // domain: (opcional) si usas un dominio específico
   });
 }
@@ -42,7 +64,7 @@ function ensureCsrfCookie(req, res) {
 
 /** Verifica con cualquiera de los secretos admitidos */
 function verifyAny(token) {
-  const secrets = [ADMIN_SECRET, DB_SECRET];
+  const secrets = [ADMIN_SECRET, DB_SECRET].filter(Boolean);
   for (const s of secrets) {
     try {
       return jwt.verify(token, s);
@@ -67,7 +89,9 @@ export async function setSessionFromToken(req, res) {
     if (!payload) return res.status(401).json({ error: "token inválido" });
 
     const { restaurantId, email, type } = extractClaims(payload);
-    if (!restaurantId) return res.status(401).json({ error: "claims incompletos" });
+    if (!restaurantId) {
+      return res.status(401).json({ error: "claims incompletos" });
+    }
 
     // cookie con claims mínimos
     setSessionCookie(res, { restaurantId, email, type: type || "admin" });
@@ -141,7 +165,8 @@ export async function refreshFromCookie(req, res) {
       return res.status(401).json({ error: "Sesión incompleta" });
     }
 
-    const email = payload?.email || payload?.sub || `anon+${restaurantId}@client.local`;
+    const email =
+      payload?.email || payload?.sub || `anon+${restaurantId}@client.local`;
 
     const dbToken = await signDbToken({
       email,

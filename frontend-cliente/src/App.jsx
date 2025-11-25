@@ -1,7 +1,6 @@
 // src/App.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
 import { crearOActualizarIntent, abandonarIntent } from "./services/checkout";
 import { crearIntentTakeaway } from "./services/checkout.takeaway";
 import AnimatedRoutes from "./AnimatedRoutes";
@@ -186,76 +185,58 @@ function AppInner() {
   }, [itemCount]);
 
   // 🔐 Auto-login + siembra cookie httpOnly + validación por cookie
-  const autoLogin = useCallback(async () => {
+   const autoLogin = useCallback(async () => {
     try {
-      // 1) ¿Tengo token y es del mismo restaurante?
-      let token = localStorage.getItem("token");
+      // 1) ¿Ya tengo un token de cliente válido para ESTE restaurante?
+      let token =
+        sessionStorage.getItem("client_token") ||
+        localStorage.getItem("client_token") || // por si quedó algo viejo
+        null;
+
       if (token) {
         const payload = parseJwt(token);
         const ridToken = Number(
-          payload?.restaurantId || payload?.restaurant_id
+          payload?.restaurantId ?? payload?.restaurant_id ?? 0
         );
-        if (Number(ridToken) !== Number(restaurantId)) {
-          localStorage.removeItem("token");
+
+        // Si el token es de otro restaurante o está raro → lo descartamos
+        if (!ridToken || ridToken !== Number(restaurantId)) {
+          sessionStorage.removeItem("client_token");
           localStorage.removeItem("client_token");
           token = null;
         }
       }
 
-      // 2) Si tengo token → siembra cookie de sesión y valida por cookie
-      if (token) {
-        try {
-          await ensureCsrfCookie();
-          await axios.post(
-            `${API_BASE}/api/auth/session`,
-            { token },
-            {
-              withCredentials: true,
-              headers: withCsrf({ "Content-Type": "application/json" }),
-            }
-          );
-          await axios.get(`${API_BASE}/api/auth/validate-cookie`, {
-            withCredentials: true,
-          });
-          localStorage.setItem("client_token", token);
-          return token;
-        } catch {
-          localStorage.removeItem("token");
-          localStorage.removeItem("client_token");
-          token = null;
+      // 2) Si no tengo token → solicitar uno nuevo al backend
+      if (!token) {
+        await ensureCsrfCookie();
+        const headers = withCsrf({ "Content-Type": "application/json" });
+
+        const res = await fetch(`${API_BASE}/api/auth/login-cliente`, {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({ restaurantId }),
+        });
+
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || "login-cliente falló");
         }
+
+        const data = await res.json();
+        token = data.token;
+
+        // Guardamos SOLO en sessionStorage (token de vida corta)
+        sessionStorage.setItem("client_token", token);
+        // Limpieza de restos viejos
+        localStorage.removeItem("client_token");
+        localStorage.removeItem("token");
       }
-
-      // 3) No hay token → login-cliente, guardar token y sembrar cookie
-      await ensureCsrfCookie();
-      const { data } = await axios.post(
-        `${API_BASE}/api/auth/login-cliente`,
-        { restaurantId },
-        {
-          withCredentials: true,
-          headers: withCsrf({ "Content-Type": "application/json" }),
-        }
-      );
-      token = data.token;
-
-      localStorage.setItem("token", token);
-      localStorage.setItem("client_token", token);
-
-      await axios.post(
-        `${API_BASE}/api/auth/session`,
-        { token },
-        {
-          withCredentials: true,
-          headers: withCsrf({ "Content-Type": "application/json" }),
-        }
-      );
-      await axios.get(`${API_BASE}/api/auth/validate-cookie`, {
-        withCredentials: true,
-      });
 
       return token;
     } catch (err) {
-      console.error("autoLogin:", err.response?.data || err.message);
+      console.error("autoLogin:", err);
       throw new Error("No se pudo autenticar al cliente");
     }
   }, [restaurantId]);
