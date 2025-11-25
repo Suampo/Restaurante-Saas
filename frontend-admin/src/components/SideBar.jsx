@@ -2,21 +2,35 @@
 import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Home, List, Utensils, ShoppingCart, Boxes, TrendingUp, LogOut,
-  ChevronsLeft, ChevronsRight, X, CookingPot, Users,FileText
+  Home,
+  List,
+  Utensils,
+  ShoppingCart,
+  Boxes,
+  TrendingUp,
+  LogOut,
+  ChevronsLeft,
+  ChevronsRight,
+  X,
+  CookingPot,
+  Users,
+  FileText,
+  Settings,
 } from "lucide-react";
 import API from "../services/axiosInstance";
 
 // --- Sub-componente para los elementos de navegación (Estilo Oscuro) ---
 function NavItem({ to, icon: Icon, label, collapsed, onClick }) {
-  const baseClasses = "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400/80";
-  const navLinkClasses = ({ isActive }) => [
-    baseClasses,
-    isActive
-      ? "bg-zinc-800 text-green-400 font-semibold"
-      : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50",
-    collapsed && "justify-center",
-  ].join(" ");
+  const baseClasses =
+    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400/80";
+  const navLinkClasses = ({ isActive }) =>
+    [
+      baseClasses,
+      isActive
+        ? "bg-zinc-800 text-green-400 font-semibold"
+        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50",
+      collapsed && "justify-center",
+    ].join(" ");
 
   return (
     <li>
@@ -35,14 +49,22 @@ function NavItem({ to, icon: Icon, label, collapsed, onClick }) {
 
 // --- Componente Principal ---
 export default function SideBar({ open, setOpen }) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sb:collapsed") === "1");
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("sb:collapsed") === "1"
+  );
 
-  useEffect(() => { localStorage.setItem("sb:collapsed", collapsed ? "1" : "0"); }, [collapsed]);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    localStorage.setItem("sb:collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [setOpen]);
+
   useEffect(() => {
     const apply = () => {
       if (window.matchMedia("(min-width: 768px)").matches) {
@@ -62,28 +84,38 @@ export default function SideBar({ open, setOpen }) {
     };
   }, [collapsed]);
 
-  const menus = useMemo(() => ([
-    { label: "Inicio",          icon: Home,         to: "/dashboard" },
-    { label: "Mesas",           icon: List,         to: "/mesas" },
-    { label: "Menú",            icon: Utensils,     to: "/menu" },
-    { label: "Pedidos",         icon: ShoppingCart, to: "/pedidos" },
-    { label: "Inventario",      icon: Boxes,        to: "/inventario" },
-    { label: "Reportes",        icon: TrendingUp,   to: "/reportes" },
-    { label: "Mov. efectivo",   icon: TrendingUp,   to: "/admin/movimientos-efectivo" },
-    { label: "Trabajadores",    icon: Users,        to: "/admin/trabajadores" },
-    { label: "Facturación",     icon: FileText,     to: "/admin/facturacion" },
-  ]), []);
+  const menus = useMemo(
+    () => [
+      { label: "Inicio", icon: Home, to: "/dashboard" },
+      { label: "Mesas", icon: List, to: "/mesas" },
+      { label: "Menú", icon: Utensils, to: "/menu" },
+      { label: "Pedidos", icon: ShoppingCart, to: "/pedidos" },
+      { label: "Inventario", icon: Boxes, to: "/inventario" },
+      { label: "Reportes", icon: TrendingUp, to: "/reportes" },
+      {
+        label: "Mov. efectivo",
+        icon: TrendingUp,
+        to: "/admin/movimientos-efectivo",
+      },
+      { label: "Trabajadores", icon: Users, to: "/admin/trabajadores" },
+      { label: "Facturación", icon: FileText, to: "/admin/facturacion" },
+      { label: "Configuración", icon: Settings, to: "/configuracion" },
+    ],
+    []
+  );
 
   const handleLogout = useCallback(async () => {
-    try { await API.post("/auth/logout"); }
-    catch (e) { console.warn("logout:", e?.response?.data || e.message); }
-    finally {
+    try {
+      await API.post("/auth/logout");
+    } catch (e) {
+      console.warn("logout:", e?.response?.data || e.message);
+    } finally {
       localStorage.removeItem("token");
       sessionStorage.removeItem("token");
       window.location.replace("/login");
     }
   }, []);
-  
+
   const closeOnMobile = () => {
     if (window.matchMedia("(max-width: 767px)").matches) setOpen(false);
   };
@@ -93,7 +125,9 @@ export default function SideBar({ open, setOpen }) {
       {/* Overlay (móvil) */}
       <div
         onClick={() => setOpen(false)}
-        className={`fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity md:hidden ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity md:hidden ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
       />
 
       {/* Barra Lateral */}
@@ -114,7 +148,11 @@ export default function SideBar({ open, setOpen }) {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-600 text-white shadow-md">
               <CookingPot size={20} />
             </div>
-            {!collapsed && <span className="text-base font-bold tracking-tight text-zinc-50">Mi Negocio</span>}
+            {!collapsed && (
+              <span className="text-base font-bold tracking-tight text-zinc-50">
+                Mi Negocio
+              </span>
+            )}
           </div>
           <div>
             <button
@@ -138,7 +176,12 @@ export default function SideBar({ open, setOpen }) {
         <nav className="flex-grow overflow-y-auto p-2">
           <ul role="list" className="space-y-1">
             {menus.map((menu) => (
-              <NavItem key={menu.to} {...menu} collapsed={collapsed} onClick={closeOnMobile} />
+              <NavItem
+                key={menu.to}
+                {...menu}
+                collapsed={collapsed}
+                onClick={closeOnMobile}
+              />
             ))}
           </ul>
         </nav>
@@ -146,11 +189,14 @@ export default function SideBar({ open, setOpen }) {
         {/* Pie de Barra (Logout) */}
         <footer className="shrink-0 border-t border-zinc-800 p-2">
           <button
-            onClick={() => { closeOnMobile(); handleLogout(); }}
+            onClick={() => {
+              closeOnMobile();
+              handleLogout();
+            }}
             className={[
               "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
               "text-rose-500 hover:bg-rose-500/10 hover:text-rose-400",
-              collapsed && "justify-center"
+              collapsed && "justify-center",
             ].join(" ")}
           >
             <LogOut size={20} className="shrink-0" />
