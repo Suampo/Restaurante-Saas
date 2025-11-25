@@ -12,17 +12,17 @@ const IconChef = (p) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" /><line x1="6" x2="18" y1="17" y2="17" /></svg>
 );
 const IconChevronRight = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m9 18 6-6-6-6"/></svg>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m9 18 6-6-6-6"/></svg>
 );
 
-export const CARTBAR_H = 72;
+export const CARTBAR_H = 80; // Ajustado ligeramente para mejor cálculo
 
 export default function CartBar({
   itemCount,
   total,
   formatPEN,
   onOpenCart,
-  onSend, // Opcional (enviar a cocina directo)
+  onSend, // Opcional
   onPay,  // Ir a pagar
 }) {
   const wrapRef = useRef(null);
@@ -31,7 +31,6 @@ export default function CartBar({
   // 1. Manejo de entrada/salida suave
   useEffect(() => {
     if (itemCount > 0) {
-      // Pequeño delay para permitir que el DOM se monte antes de animar la opacidad
       const t = setTimeout(() => setVisible(true), 50);
       return () => clearTimeout(t);
     } else {
@@ -39,7 +38,7 @@ export default function CartBar({
     }
   }, [itemCount]);
 
-  // 2. Cálculo de altura para CSS Variable (Padding inferior global)
+  // 2. Cálculo de altura
   useEffect(() => {
     const updateHeight = () => {
       const height = itemCount > 0 ? (wrapRef.current?.offsetHeight || CARTBAR_H) : 0;
@@ -48,8 +47,6 @@ export default function CartBar({
 
     updateHeight();
     window.addEventListener("resize", updateHeight);
-    
-    // Observer por si el contenido cambia de tamaño
     const ro = new ResizeObserver(updateHeight);
     if (wrapRef.current) ro.observe(wrapRef.current);
 
@@ -60,10 +57,8 @@ export default function CartBar({
     };
   }, [itemCount]);
 
-  // No renderizar nada si no hay items (excepto para animar salida, pero aquí desmontamos simple)
   if (itemCount <= 0) return null;
 
-  // Formateo seguro
   const totalStr = formatPEN ? formatPEN(total) : `S/ ${Number(total).toFixed(2)}`;
 
   return (
@@ -81,57 +76,71 @@ export default function CartBar({
         `}
       >
         
-        {/* === VISTA MÓVIL (< 640px): ISLA FLOTANTE === */}
-        <div className="block sm:hidden px-4 pb-4 pt-2">
-          <div 
+        {/* === VISTA MÓVIL (< 640px): ISLA FLOTANTE PREMIUM === */}
+        <div className="block sm:hidden px-4 pb-5 pt-2">
+          <button 
             onClick={onOpenCart}
-            className="group relative flex w-full items-center justify-between overflow-hidden rounded-2xl bg-gray-900 p-1 shadow-2xl shadow-gray-900/20 ring-1 ring-white/10 cursor-pointer active:scale-[0.98] transition-transform"
+            className="
+              group relative flex w-full items-center justify-between overflow-hidden 
+              rounded-[20px] bg-[#1a1a1a] p-1.5 pr-5
+              shadow-[0_8px_30px_rgb(0,0,0,0.3)] ring-1 ring-white/10
+              transition-all active:scale-[0.97]
+            "
           >
-             {/* Lado Izquierdo: Info */}
-             <div className="flex flex-1 items-center gap-3 px-4 py-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-900/50">
-                   <span className="text-sm font-bold">{itemCount}</span>
+             {/* Círculo contador */}
+             <div className="flex items-center gap-3.5">
+                <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+                   <span className="text-[15px] font-bold">{itemCount}</span>
+                   {/* Badge animado sutil */}
+                   <span className="absolute inset-0 rounded-full ring-2 ring-white/20 animate-pulse"></span>
                 </div>
-                <div className="flex flex-col">
-                   <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Total</span>
-                   <span className="text-lg font-bold text-white leading-none">{totalStr}</span>
+                
+                <div className="flex flex-col items-start">
+                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total</span>
+                   <span className="text-[17px] font-bold text-white tabular-nums leading-none tracking-tight">
+                     {totalStr}
+                   </span>
                 </div>
              </div>
 
-             {/* Lado Derecho: Acción */}
-             <div className="flex items-center gap-2 pr-5 text-sm font-semibold text-emerald-400 group-hover:text-emerald-300">
-                <span>Ver Pedido</span>
-                <IconChevronRight className="h-4 w-4" />
+             {/* Acción Derecha */}
+             <div className="flex items-center gap-2 text-emerald-400">
+                <span className="text-xs font-bold tracking-wide uppercase">Ver Pedido</span>
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 transition-colors">
+                   <IconChevronRight className="h-3.5 w-3.5" />
+                </div>
              </div>
 
-             {/* Fondo Decorativo */}
-             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
+             {/* Brillo Hover */}
+             <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/5 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+          </button>
         </div>
 
-        {/* === VISTA DESKTOP/TABLET (>= 640px): BARRA COMPLETA === */}
-        <div className="hidden sm:block border-t border-gray-200/80 bg-white/90 backdrop-blur-xl shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]">
-          <div className="mx-auto flex h-[80px] max-w-6xl items-center justify-between px-6">
+        {/* === VISTA DESKTOP/TABLET (>= 640px): BARRA FROSTED === */}
+        <div className="hidden sm:block border-t border-gray-200/60 bg-white/80 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)]">
+          <div className="mx-auto flex h-[88px] max-w-6xl items-center justify-between px-8">
             
-            {/* Resumen */}
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            {/* Resumen Izquierda */}
+            <div className="flex items-center gap-5">
+              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                 <IconCart className="h-6 w-6" />
+                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+                  {itemCount}
+                </span>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-500">Resumen del pedido</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Total a Pagar</p>
                 <div className="flex items-baseline gap-2">
-                   <span className="text-2xl font-extrabold text-gray-900 tracking-tight">{totalStr}</span>
-                   <span className="text-sm font-medium text-gray-400">({itemCount} productos)</span>
+                   <span className="text-3xl font-black text-gray-900 tracking-tighter">{totalStr}</span>
                 </div>
               </div>
             </div>
 
-            {/* Botonera */}
+            {/* Botonera Derecha */}
             <div className="flex items-center gap-3">
               <button
                 onClick={onOpenCart}
-                className="flex h-12 items-center gap-2 rounded-xl border border-gray-200 bg-white px-6 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition active:scale-95"
+                className="flex h-12 items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-6 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-95"
               >
                 Ver detalles
               </button>
@@ -139,7 +148,7 @@ export default function CartBar({
               {onSend && (
                 <button
                   onClick={onSend}
-                  className="flex h-12 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-6 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 transition active:scale-95"
+                  className="flex h-12 items-center gap-2.5 rounded-xl bg-emerald-100 px-6 text-sm font-bold text-emerald-800 hover:bg-emerald-200 transition-all active:scale-95"
                 >
                   <IconChef className="h-5 w-5" />
                   Cocina
@@ -148,7 +157,7 @@ export default function CartBar({
 
               <button
                 onClick={onPay}
-                className="flex h-12 items-center gap-2 rounded-xl bg-emerald-600 px-8 text-sm font-bold text-white shadow-lg shadow-emerald-600/30 hover:bg-emerald-700 hover:shadow-emerald-600/40 transition active:scale-95 active:shadow-none"
+                className="flex h-12 items-center gap-2.5 rounded-xl bg-gray-900 px-8 text-sm font-bold text-white shadow-lg shadow-gray-900/20 hover:bg-black hover:shadow-gray-900/30 transition-all active:scale-95"
               >
                 <IconCreditCard className="h-5 w-5" />
                 Pagar Ahora

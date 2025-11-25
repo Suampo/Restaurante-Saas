@@ -1,98 +1,68 @@
 // src/components/RestaurantHeader.jsx
 import React from "react";
 
-/**
- * Componente de esqueleto para el estado de carga del texto
- */
-function SkeletonLoader() {
-  return (
-    <div className="w-full space-y-2 animate-pulse" aria-hidden="true">
-      {/* Esqueleto del subtítulo (pequeño) */}
-      <div className="h-3 w-32 rounded bg-white/20" />
-      {/* Esqueleto del título (grande) */}
-      <div className="h-7 w-3/4 rounded bg-white/30" />
-    </div>
-  );
-}
+const API_BASE =
+  import.meta.env.VITE_API_PEDIDOS ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:4000";
 
-/**
- * Icono de ubicación
- */
-function MapPin({ className, ...props }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      className={className}
-      {...props}
-    >
-      <path d="M12 21s7-4.5 7-11a7 7 0 0 0-14 0c0 6.5 7 11 7 11z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  );
-}
+const isAbs = (u = "") =>
+  /^https?:\/\//i.test(u) || u.startsWith("data:") || u.startsWith("blob:");
 
-/**
- * Cabecera principal para la vista del restaurante
- */
+const toAbs = (u = "") =>
+  isAbs(u) ? u : `${API_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
+
 export default function RestaurantHeader({
   name,
   mesaText,
+  loading,
   coverUrl,
-  loading = false,
-  subtitle = "Servicio a la mesa",
 }) {
+  const displayName = loading ? "Cargando…" : name || "Restaurante demo";
+  const fullCover = coverUrl ? toAbs(coverUrl) : null;
+
   return (
-    <header className="relative mb-6 w-full overflow-hidden rounded-3xl shadow-xl ring-1 ring-white/10">
-      {/* FONDO: Contenedor de imagen y gradiente */}
-      <div className="relative h-[140px] w-full bg-[linear-gradient(140deg,#0b1625_0%,#09111f_100%)]">
-        {/* Imagen de portada (opcional) */}
-        {coverUrl && (
-          <img
-            src={coverUrl}
-            alt="Portada del restaurante"
-            className="absolute inset-0 h-full w-full object-cover opacity-30 transition-opacity duration-700"
-            onError={(e) => (e.currentTarget.style.display = "none")}
+    <div className="mb-5 md:mb-7">
+      <div className="relative overflow-hidden rounded-[32px] shadow-card">
+        {/* Fondo: imagen + degradado, como en el diseño */}
+        {fullCover && (
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url("${fullCover}")` }}
           />
         )}
-        {/* Overlay degradado para asegurar legibilidad del texto inferior */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#09111f] via-transparent to-transparent opacity-80" />
-      </div>
+        {!fullCover && (
+          <div className="absolute inset-0 bg-gradient-to-r from-[#fdf5ec] via-[#fefaf4] to-[#fde7d0]" />
+        )}
+        {/* Degradado para que el texto sea legible encima de la foto */}
+        <div className="absolute inset-0 bg-gradient-to-r from-white/96 via-white/82 to-white/40" />
 
-      {/* CONTENIDO SUPERPUESTO */}
-      <div className="absolute inset-0 flex flex-col justify-between p-5 text-white">
-        {/* Fila Superior: Badges / Pills */}
-        <div className="flex items-start justify-between gap-2">
-          {/* Pill de ubicación/servicio */}
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white shadow-sm ring-1 ring-white/20 backdrop-blur-md">
-            <MapPin className="h-3.5 w-3.5 text-white/90" />
-            <span className="opacity-90">{subtitle}</span>
-          </div>
-
-          {/* Pill de Mesa */}
-          <div className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-lg ring-1 ring-emerald-500/50">
-            Mesa {mesaText || "—"}
-          </div>
-        </div>
-
-        {/* Fila Inferior: Títulos */}
-        <div className="relative z-10">
-          {loading ? (
-            <SkeletonLoader />
-          ) : (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-              <div className="text-xs font-medium tracking-wide text-white/70 uppercase mb-1">
-                Menú digital interactivo
-              </div>
-              <h1 className="text-2xl font-extrabold tracking-tight uppercase text-white drop-shadow-md line-clamp-2 leading-tight">
-                {name || "RESTAURANTE"}
-              </h1>
+        {/* Contenido */}
+        <div className="relative px-5 py-4 sm:px-7 sm:py-5 md:px-8 md:py-6 flex flex-col gap-3">
+          <div className="space-y-1">
+            <div className="text-[11px] font-semibold tracking-[0.22em] text-amber-500 uppercase">
+              Restaurante
             </div>
-          )}
+            <h1 className="text-2xl sm:text-[26px] md:text-[28px] font-extrabold tracking-tight text-neutral-900">
+              {displayName}
+            </h1>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/92 px-3 py-1 text-xs font-medium text-neutral-800 shadow-sm ring-1 ring-black/5">
+              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,.3)]" />
+              <span>Servicio a la mesa</span>
+            </div>
+
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-cta">
+              <span className="uppercase tracking-wide text-[11px]">
+                Mesa
+              </span>
+              <span>{mesaText}</span>
+            </div>
+          </div>
         </div>
       </div>
-    </header>
+    </div>
   );
 }

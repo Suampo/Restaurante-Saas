@@ -1,8 +1,8 @@
 // src/hooks/MenuProvider.jsx
 import React, { createContext, useEffect, useMemo, useState } from "react";
-import { fetchRestaurant } from "../services/restaurantApi.js"; // <- añade esta import
+import { fetchRestaurant } from "../services/restaurantApi.js";
 
-// Si tienes helpers en /lib/ui, puedes usarlos; aquí sólo resolvemos API_BASE.
+// Base del backend de pedidos
 const API_BASE =
   import.meta.env.VITE_API_PEDIDOS ||
   import.meta.env.VITE_API_URL ||
@@ -19,12 +19,15 @@ function readUrlParams() {
   };
 }
 
+const isAbs = (u = "") =>
+  /^https?:\/\//i.test(u) || u.startsWith("data:") || u.startsWith("blob:");
+const toAbs = (u = "") =>
+  isAbs(u) ? u : `${API_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
+
 /**
- * Carga el menú público. Si en tu proyecto ya tienes funciones en
- * `services/restaurantApi`, puedes sustituir el fetch por esas funciones.
+ * Carga el menú público
  */
 async function fetchMenuPublic(restaurantId) {
-  // Endpoint genérico: ajústalo si tu backend expone rutas diferentes.
   const url = `${API_BASE}/api/public/menu?restaurantId=${restaurantId}`;
   const r = await fetch(url, { credentials: "include" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -38,7 +41,11 @@ export default function MenuProvider({ children }) {
     loading: true,
     error: "",
     restaurantName: "",
-    billingMode: "none", // 'sunat' | 'simple' | 'none'
+    billingMode: "none",
+    restaurantCoverUrl: null,
+    // 👇 1. INICIALIZAMOS LOS NUEVOS CAMPOS
+    restaurantAddress: null,
+    restaurantPhone: null,
     categories: [],
     combos: [],
   });
@@ -50,15 +57,13 @@ export default function MenuProvider({ children }) {
       try {
         setState((s) => ({ ...s, loading: true, error: "" }));
 
-        // Dispara ambas peticiones en paralelo:
-        // - Menú público
-        // - Info del restaurante (incluye billing_mode)
         const [data, restInfo] = await Promise.all([
           fetchMenuPublic(restaurantId).catch(() => null),
-          fetchRestaurant(restaurantId, { credentials: "include" }).catch(() => null),
+          fetchRestaurant(restaurantId, { credentials: "include" }).catch(
+            () => null
+          ),
         ]);
 
-        // Normalizamos respuesta del menú
         const categories =
           data?.categories ||
           data?.categorias ||
@@ -66,7 +71,6 @@ export default function MenuProvider({ children }) {
 
         const combos = data?.combos || [];
 
-        // Nombre de restaurante: prioriza lo que venga, con fallbacks
         const restaurantName =
           data?.restaurantName ||
           data?.restaurant?.nombre ||
@@ -74,13 +78,35 @@ export default function MenuProvider({ children }) {
           restInfo?.nombre ||
           "Restaurante";
 
-        // billingMode desde el menú o, si no viene, desde /public/restaurants/:id
         const billingMode = String(
           data?.billingMode ||
-          data?.restaurante?.billing_mode ||
-          restInfo?.billing_mode ||
-          "none"
+            data?.restaurante?.billing_mode ||
+            restInfo?.billing_mode ||
+            "none"
         ).toLowerCase();
+
+        const rawCover =
+          data?.restaurantCoverUrl ||
+          data?.restaurant?.cover_url ||
+          data?.restaurante?.cover_url ||
+          restInfo?.cover_url ||
+          null;
+
+        const restaurantCoverUrl = rawCover ? toAbs(rawCover) : null;
+
+        // 👇 2. EXTRAEMOS DIRECCIÓN Y TELÉFONO (Según tu tabla DB)
+        // Buscamos en 'restInfo' (fetchRestaurant) o en 'data.restaurante'
+        const restaurantAddress = 
+          restInfo?.direccion || 
+          data?.restaurante?.direccion || 
+          data?.restaurant?.address || 
+          null;
+
+        const restaurantPhone = 
+          restInfo?.telefono || 
+          data?.restaurante?.telefono || 
+          data?.restaurant?.phone || 
+          null;
 
         if (!alive) return;
 
@@ -91,6 +117,10 @@ export default function MenuProvider({ children }) {
           combos,
           restaurantName,
           billingMode,
+          restaurantCoverUrl,
+          // 👇 3. GUARDAMOS EN EL ESTADO
+          restaurantAddress,
+          restaurantPhone,
         });
       } catch (e) {
         if (!alive) return;
@@ -107,7 +137,6 @@ export default function MenuProvider({ children }) {
     };
   }, [restaurantId]);
 
-  // ====== Lista aplanada (menuAll) + alias de compatibilidad ======
   const menuAll = useMemo(() => {
     const out = [];
     for (const c of state.categories || []) {
@@ -121,27 +150,28 @@ export default function MenuProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      // meta
       apiBase: API_BASE,
       restaurantId,
       mesaId,
       mesaCode,
       restaurantName: state.restaurantName,
       billingMode: state.billingMode,
+      restaurantCoverUrl: state.restaurantCoverUrl,
+      
+      // 👇 4. EXPONEMOS AL CONTEXTO PÚBLICO
+      restaurantAddress: state.restaurantAddress,
+      restaurantPhone: state.restaurantPhone,
 
-      // datos
       categories: state.categories,
       combos: state.combos,
 
-      // aplanado y alias (para compatibilidad con componentes existentes)
-      menuAll,           // recomendado usar este
+      menuAll,
       menu: menuAll,
       items: menuAll,
       fullMenu: menuAll,
       allMenu: menuAll,
       menuItems: menuAll,
 
-      // ui state
       loading: state.loading,
       error: state.error,
     }),
@@ -151,6 +181,11 @@ export default function MenuProvider({ children }) {
       mesaCode,
       state.restaurantName,
       state.billingMode,
+      state.restaurantCoverUrl,
+      // 👇 AGREGAMOS DEPENDENCIAS PARA QUE SE ACTUALICE SI CAMBIAN
+      state.restaurantAddress,
+      state.restaurantPhone,
+      
       state.categories,
       state.combos,
       state.loading,
@@ -159,5 +194,9 @@ export default function MenuProvider({ children }) {
     ]
   );
 
-  return <MenuPublicCtx.Provider value={value}>{children}</MenuPublicCtx.Provider>;
+  return (
+    <MenuPublicCtx.Provider value={value}>
+      {children}
+    </MenuPublicCtx.Provider>
+  );
 }

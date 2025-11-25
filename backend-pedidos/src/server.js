@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import { imgRouter } from "./routes/img.js";
+
 /* ===== Rutas (estables) ===== */
 import pspPublicRoutes from "./routes/psp.public.js";
 import authPublicRoutes from "./routes/auth.public.js";
@@ -42,6 +43,8 @@ import inventarioRoutes from "./routes/inventarioRoutes.js";
 
 /* ✅ NUEVO: Admin – movimientos de efectivo (para vista Trabajadores) */
 import adminCashRoutes from "./routes/admin.cash.js";
+/* ✅ NUEVO: Admin – configuración de restaurante */
+import restaurantAdminRoutes from "./routes/admin.restaurant.js";
 
 /* ===== Middlewares ===== */
 import { requireCsrf } from "./middlewares/requireCsrf.js";
@@ -64,7 +67,7 @@ app.use(
         "default-src": ["'self'"],
         "script-src": ["'self'"],
         "script-src-attr": ["'none'"],
-        "style-src": ["'self'"],  // 🚫 sin unsafe-inline
+        "style-src": ["'self'"], // 🚫 sin unsafe-inline
         "img-src": ["'self'", "data:"],
         "font-src": ["'self'", "https:", "data:"],
         "object-src": ["'none'"],
@@ -109,21 +112,16 @@ app.use(cookieParser());
 
 /**
  * Siembra CSRF si falta (cookie legible por el front).
- * ⚠️ IMPORTANTE:
- * - No es cookie de sesión ni JWT, solo token CSRF para double-submit.
- * - Se mantiene httpOnly: false de forma consciente, porque el front
- *   debe leerla y enviarla en el header `x-csrf-token`.
- * - Endurecida con sameSite, secure, path limitado y expiración.
  */
 app.use((req, res, next) => {
   if (!req.cookies?.csrf_token) {
     const token = crypto.randomBytes(24).toString("hex");
     res.cookie("csrf_token", token, {
-      httpOnly: false,                  // se acepta el riesgo (no es cookie de sesión)
+      httpOnly: false,
       sameSite: "lax",
       secure: isProd,
-      path: "/api",                     // 🔒 solo se envía en rutas /api
-      maxAge: 1000 * 60 * 60 * 12,      // 🔒 12 horas (igual que en facturación)
+      path: "/api",
+      maxAge: 1000 * 60 * 60 * 12,
     });
   }
   next();
@@ -133,7 +131,11 @@ app.use((req, res, next) => {
 app.use(compression());
 app.use((req, res, next) => {
   if (req.path === "/api/webhooks/culqi") {
-    return express.raw({ type: "application/json", limit: "1mb" })(req, res, next);
+    return express.raw({ type: "application/json", limit: "1mb" })(
+      req,
+      res,
+      next
+    );
   }
   return express.json({ limit: "1mb" })(req, res, next);
 });
@@ -144,6 +146,7 @@ app.use("/img", imgRouter);
 
 /* ===== CSRF (double-submit cookie) ===== */
 app.use(requireCsrf);
+
 /* ===== Cache headers ===== */
 app.use((req, res, next) => {
   if (req.path && req.path.startsWith("/api/reportes")) {
@@ -164,10 +167,16 @@ app.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     return next();
   }
-  const cacheables = ["/api/inventario/unidades", "/api/inventario/almacenes"];
+  const cacheables = [
+    "/api/inventario/unidades",
+    "/api/inventario/almacenes",
+  ];
   if (cacheables.some((prefix) => p.startsWith(prefix))) {
     if (!res.get("Cache-Control")) {
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=30");
+      res.set(
+        "Cache-Control",
+        "public, max-age=60, stale-while-revalidate=30"
+      );
     }
   }
   next();
@@ -191,11 +200,20 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler(req, res) {
-    console.warn("[RateLimit AUTH]", req.method, req.originalUrl, "ip:", req.ip);
+    console.warn(
+      "[RateLimit AUTH]",
+      req.method,
+      req.originalUrl,
+      "ip:",
+      req.ip
+    );
     res.status(429).json({ error: "Too Many Requests" });
   },
 });
-const webhookLimiter = rateLimit({ windowMs: 60_000, max: isProdLimits ? 60 : 5_000 });
+const webhookLimiter = rateLimit({
+  windowMs: 60_000,
+  max: isProdLimits ? 60 : 5_000,
+});
 
 // Rate-limit específico para crear pedido (público)
 const createPedidoLimiter = rateLimit({
@@ -217,21 +235,22 @@ if (isProdLimits) {
 /* ===== RUTAS PÚBLICAS (orden importa) ===== */
 app.use("/api/staff", requireDbToken, staffRoutes);
 
-app.use("/api", publicMesas);           // GET /api/public/mesas/resolve
-app.use("/api", restaurantsPublic);     // GET /api/public/restaurants/:id
-app.use("/api", publicMenuRoutes);      // GET /api/public/menu
-app.use("/api", sessionCookieRoutes);   // /api/csrf + /api/session/refresh + /api/auth/*
-app.use("/api", sessionLoginRoutes);    // /api/session/login
+app.use("/api", publicMesas); // GET /api/public/mesas/resolve
+app.use("/api", restaurantsPublic); // GET /api/public/restaurants/:id
+app.use("/api", publicMenuRoutes); // GET /api/public/menu
+app.use("/api", sessionCookieRoutes); // /api/csrf + /api/session/refresh + /api/auth/*
+app.use("/api", sessionLoginRoutes); // /api/session/login
 app.use("/api", authPublicRoutes);
 app.use("/api", pspPublicRoutes);
 app.use("/api/pay", payRoutes);
 app.use("/api/dev", devRoutes);
 app.use("/api/checkout", checkoutRoutes);
-app.use("/api", publicMenuV2Routes);   // GET /api/public/menu-v2
+app.use("/api", publicMenuV2Routes); // GET /api/public/menu-v2
 app.use("/api", takeawayRoutes);
 app.use("/api", healthRoutes);
 
 /* ===== RUTAS PROTEGIDAS / MIXTAS ===== */
+
 // Pedidos: POST raíz público con rate-limit; resto con token
 const guardPedidos = (req, res, next) => {
   const isRoot = req.path === "/" || req.path === "";
@@ -246,8 +265,11 @@ app.use("/api/pedidos", guardPedidos, pedidoRoutes);
 app.use("/api/inventario", requireDbToken, inventarioRoutes);
 
 // El resto protegido
-//app.use("/api/auth", requireDbToken, authRoutes);
+// app.use("/api/auth", requireDbToken, authRoutes);
 app.use("/api/auth", authRoutes);
+
+/* ✅ NUEVO: configuración de restaurante (GET/PUT /api/restaurant) */
+app.use("/api/restaurant", requireDbToken, restaurantAdminRoutes);
 
 app.use("/api/menu", requireDbToken, menuRoutes);
 app.use("/api/mesas", requireDbToken, mesaRoutes);
@@ -264,7 +286,7 @@ app.use("/admin", requireDbToken, adminCashRoutes);
 /* ===== Estáticos ===== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
+app.use("/menu_images", express.static(path.join(__dirname, "menu_images")));
 /* ===== 404 + errores ===== */
 app.use((req, res) => res.status(404).json({ error: "No encontrado" }));
 
@@ -287,9 +309,14 @@ app.use((err, req, res, _next) => {
 
 /* ===== HTTP + Socket.IO ===== */
 const server = http.createServer(app);
-initSocket(server);
+import { initSocket as _initSocket } from "./services/realtimeService.js";
+_initSocket(server);
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`✅ Servidor corriendo en http://localhost:${PORT} (${isProd ? "prod" : "dev"})`);
+  console.log(
+    `✅ Servidor corriendo en http://localhost:${PORT} (${
+      isProd ? "prod" : "dev"
+    })`
+  );
 });

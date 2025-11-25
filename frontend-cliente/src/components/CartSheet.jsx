@@ -35,9 +35,16 @@ function resolveImgSrc(absolute, item, fallbackImg) {
   return fallbackImg;
 }
 
-/* iconito de carrito (inline, sin dependencias) */
+/* iconito de carrito */
 const CartIcon = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" {...p}>
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    aria-hidden="true"
+    {...p}
+  >
     <circle cx="9" cy="20" r="1.5" />
     <circle cx="18" cy="20" r="1.5" />
     <path d="M3 3h2l2.2 12.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H7" />
@@ -52,8 +59,8 @@ export default function CartSheet({
   formatPEN,
   absolute: absProp,
   fallbackImg = FALLBACK_IMG,
-  onAdd,     // (index)
-  onRemove,  // (index)
+  onAdd, // (index)
+  onRemove, // (index)
   onPay,
 }) {
   /* ===== contexto (sugerencias) ===== */
@@ -65,7 +72,8 @@ export default function CartSheet({
     const flat = [];
     for (const c of categories) {
       const arr = Array.isArray(c?.items) ? c.items : [];
-      for (const m of arr) flat.push({ ...m, categoria_id: m?.categoria_id ?? c?.id ?? null });
+      for (const m of arr)
+        flat.push({ ...m, categoria_id: m?.categoria_id ?? c?.id ?? null });
     }
     return flat;
   }, [menuCtxAll, categories]);
@@ -103,9 +111,24 @@ export default function CartSheet({
     const drinks = pick(catIdsByKey.drinks);
 
     const out = [];
-    if (extras.length) out.push({ key: "extras", title: "Toppings extra para ti", items: extras });
-    if (acomp.length) out.push({ key: "acomps", title: "Acompañamientos recomendados", items: acomp });
-    if (drinks.length) out.push({ key: "drinks", title: "Bebidas para tu pedido", items: drinks });
+    if (extras.length)
+      out.push({
+        key: "extras",
+        title: "Toppings extra para ti",
+        items: extras,
+      });
+    if (acomp.length)
+      out.push({
+        key: "acomps",
+        title: "Acompañamientos recomendados",
+        items: acomp,
+      });
+    if (drinks.length)
+      out.push({
+        key: "drinks",
+        title: "Bebidas para tu pedido",
+        items: drinks,
+      });
     return out;
   }, [globalMenu, catIdsByKey, absolute]);
 
@@ -139,7 +162,9 @@ export default function CartSheet({
       requestAnimationFrame(() => setState("open"));
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = prev; };
+      return () => {
+        document.body.style.overflow = prev;
+      };
     } else if (visible) {
       setState("closing");
       const t = setTimeout(() => {
@@ -170,7 +195,10 @@ export default function CartSheet({
     if (!dragging.current || !panelRef.current) return;
     const current = e.clientY || e.touches?.[0]?.clientY || 0;
     deltaY.current = Math.max(0, current - startY.current);
-    const damp = deltaY.current < 80 ? deltaY.current : 80 + (deltaY.current - 80) * 0.4;
+    const damp =
+      deltaY.current < 80
+        ? deltaY.current
+        : 80 + (deltaY.current - 80) * 0.4;
     panelRef.current.style.transform = `translateY(${damp}px)`;
     if (e.cancelable) e.preventDefault();
   };
@@ -195,7 +223,12 @@ export default function CartSheet({
   const missing = Math.max(0, MIN_SUBTOTAL - Number(total || 0));
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cart-title"
+    >
       {/* overlay */}
       <div
         className="absolute inset-0 bg-black/55 backdrop-blur-[2px] transition-opacity"
@@ -210,8 +243,8 @@ export default function CartSheet({
           absolute bottom-0 left-0 right-0 mx-auto w-full max-w-6xl
           md:bottom-auto md:top-0 md:right-0 md:left-auto md:h-full md:max-w-md
           flex h-[92svh] flex-col
-          rounded-t-3xl md:rounded-l-3xl md:rounded-t-none
-          bg-white/92 backdrop-blur-xl shadow-[0_15px_50px_-10px_rgba(0,0,0,.35)] ring-1 ring-black/5
+          rounded-t-[32px] md:rounded-l-[32px] md:rounded-t-none
+          bg-[#fffdf8]/95 backdrop-blur-xl shadow-[0_16px_55px_rgba(15,23,42,.45)] ring-1 ring-black/5
         "
         data-state={state}
       >
@@ -228,20 +261,29 @@ export default function CartSheet({
 
           <div className="flex items-center justify-between px-5 py-3 md:border-b md:border-black/5">
             <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
+              <div className="grid h-9 w-9 place-items-center rounded-2xl bg-emerald-500 text-white shadow-[0_8px_20px_rgba(16,185,129,.45)]">
                 <CartIcon className="h-5 w-5" />
               </div>
               <div>
-                <h3 id="cart-title" className="text-base font-semibold text-neutral-900">Tu carrito</h3>
-                <p className="text-xs text-neutral-500">
-                  {hasItems ? `${cart.length} ${cart.length === 1 ? "ítem" : "ítems"}` : "Sin productos"}
+                <h3
+                  id="cart-title"
+                  className="text-sm font-semibold text-neutral-900 tracking-tight"
+                >
+                  Tu carrito
+                </h3>
+                <p className="text-[11px] text-neutral-500">
+                  {hasItems
+                    ? `${cart.length} ${
+                        cart.length === 1 ? "ítem" : "ítems"
+                      } seleccionados`
+                    : "Aún no has agregado productos"}
                 </p>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="rounded-xl border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-900 shadow-sm hover:bg-neutral-50"
+              className="rounded-full border border-neutral-200 bg-white/90 px-3 py-1.5 text-xs font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
               aria-label="Cerrar carrito"
             >
               Cerrar
@@ -253,77 +295,129 @@ export default function CartSheet({
         <div className="min-h-0 grow overflow-y-auto px-4 py-4">
           {hasItems ? (
             <div className="space-y-4">
-              {/* bloque rosado */}
-              <div className="rounded-3xl bg-rose-50/70 p-3 ring-1 ring-rose-100 shadow-sm">
+              {/* bloque principal */}
+              <div className="rounded-[28px] bg-white/80 p-3 ring-1 ring-black/5 shadow-[0_10px_35px_rgba(15,23,42,.08)]">
                 {/* lista ítems */}
                 <ul className="space-y-3">
                   {cart.map((item, idx) => {
                     const unit = Number(item?.precio || 0);
-                    const lineTotal = unit * Number(item?.cantidad || 1);
+                    const qty = Number(item?.cantidad || 1);
+                    const lineTotal = unit * qty;
                     const comboImg =
-                      item?.entrada?.imagen_url || item?.entrada?.imagen || item?.plato?.imagen_url || item?.plato?.imagen;
+                      item?.entrada?.imagen_url ||
+                      item?.entrada?.imagen ||
+                      item?.plato?.imagen_url ||
+                      item?.plato?.imagen;
                     const imgSrc = resolveImgSrc(
                       absolute,
                       item.isCombo ? { imagen_url: comboImg } : item,
                       fallbackImg
                     );
+                    const unitLabel = formatPEN(unit);
+                    const lineTotalLabel = formatPEN(lineTotal);
 
                     return (
                       <li
                         key={`cart-${idx}-${item.isCombo ? "combo" : "item"}`}
-                        className="group flex items-center gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-black/5 hover:shadow-md transition"
+                        className="
+                          group relative flex items-center gap-3 rounded-3xl
+                          bg-white/95 px-3.5 py-3
+                          shadow-[0_10px_30px_rgba(15,23,42,.14)]
+                          ring-1 ring-neutral-200
+                          hover:shadow-[0_16px_40px_rgba(15,23,42,.20)]
+                          hover:ring-emerald-200/80
+                          transition-transform duration-200
+                          hover:-translate-y-[1px]
+                        "
                       >
-                        <img
-                          src={imgSrc}
-                          onError={(e) => {
-                            e.currentTarget.onerror = null;
-                            e.currentTarget.src = fallbackImg;
-                          }}
-                          alt={item.isCombo ? item?.nombreCombo : item?.nombre}
-                          className="h-14 w-14 rounded-xl object-cover ring-1 ring-black/5"
-                        />
+                        {/* Imagen */}
+                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-neutral-100 ring-1 ring-black/5">
+                          <img
+                            src={imgSrc}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = fallbackImg;
+                            }}
+                            alt={
+                              item.isCombo
+                                ? item?.nombreCombo
+                                : item?.nombre
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
 
+                        {/* Texto */}
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             {item.isCombo && (
-                              <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-300/60">
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200/70">
                                 Combo
                               </span>
                             )}
-                            <p className="truncate font-medium text-neutral-900">
+                            <p className="truncate text-[13px] font-semibold text-neutral-900">
                               {item.isCombo ? item?.nombreCombo : item?.nombre}
                             </p>
                           </div>
-                          <p className="mt-0.5 line-clamp-1 text-xs text-neutral-500">
+
+                          <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-500">
                             {item.isCombo
-                              ? `${item?.entrada?.nombre || "Entrada"} + ${item?.plato?.nombre || "Plato"}`
+                              ? `${item?.entrada?.nombre || "Entrada"} + ${
+                                  item?.plato?.nombre || "Plato principal"
+                                }`
                               : item?.descripcion || "Sin descripción"}
                           </p>
 
-                          <div className="mt-1 text-[13px] text-neutral-700">
-                            {item?.cantidad} × {formatPEN(unit)}{" "}
-                            <span className="mx-1 opacity-40">•</span>
-                            <span className="font-semibold text-neutral-900">{formatPEN(lineTotal)}</span>
+                          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">
+                            <span>
+                              {qty} × {unitLabel}
+                            </span>
+                            <span className="h-1 w-1 rounded-full bg-neutral-300" />
+                            <span className="font-semibold text-neutral-900">
+                              {lineTotalLabel}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => onRemove(idx)}
-                            className="h-9 w-9 rounded-lg border text-neutral-900 hover:bg-neutral-100 active:scale-[.98] transition"
-                            aria-label={`Quitar uno de ${item.isCombo ? item?.nombreCombo : item?.nombre}`}
-                            title="Quitar uno"
-                          >
-                            −
-                          </button>
-                          <button
-                            onClick={() => onAdd(idx)}
-                            className="h-9 w-9 rounded-lg border text-neutral-900 hover:bg-neutral-100 active:scale-[.98] transition"
-                            aria-label={`Agregar uno de ${item.isCombo ? item?.nombreCombo : item?.nombre}`}
-                            title="Agregar uno"
-                          >
-                            +
-                          </button>
+                        {/* Total + controles */}
+                        <div className="flex flex-col items-end justify-between gap-2 self-stretch">
+                          {/* total en pastilla oscura */}
+                          <div className="inline-flex items-center rounded-full bg-neutral-900 px-3 py-1 text-[11px] font-semibold tracking-tight text-white shadow-md shadow-neutral-900/30">
+                            {lineTotalLabel}
+                          </div>
+
+                          {/* control de cantidad */}
+                          <div className="flex items-center gap-1.5 rounded-full bg-neutral-100 px-1.5 py-1 ring-1 ring-neutral-200">
+                            <button
+                              onClick={() => onRemove(idx)}
+                              className="grid h-7 w-7 place-items-center rounded-full bg-white text-neutral-700 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
+                              aria-label={`Quitar uno de ${
+                                item.isCombo
+                                  ? item?.nombreCombo
+                                  : item?.nombre
+                              }`}
+                              title="Quitar uno"
+                              type="button"
+                            >
+                              <span className="text-base leading-none">−</span>
+                            </button>
+                            <span className="min-w-[1.5rem] text-center text-[11px] font-semibold text-neutral-800">
+                              {qty}
+                            </span>
+                            <button
+                              onClick={() => onAdd(idx)}
+                              className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-t from-emerald-600 to-emerald-500 text-white shadow-sm shadow-emerald-500/40 hover:from-emerald-500 hover:to-emerald-400 active:scale-95 transition"
+                              aria-label={`Agregar uno de ${
+                                item.isCombo
+                                  ? item?.nombreCombo
+                                  : item?.nombre
+                              }`}
+                              title="Agregar uno"
+                              type="button"
+                            >
+                              <span className="text-base leading-none">+</span>
+                            </button>
+                          </div>
                         </div>
                       </li>
                     );
@@ -333,7 +427,7 @@ export default function CartSheet({
                 {/* mínimo de compra */}
                 {MIN_SUBTOTAL > 0 && (
                   <div
-                    className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
+                    className={`mt-4 rounded-2xl px-4 py-3 text-[12px] ${
                       reachedMin
                         ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
                         : "border border-amber-200 bg-amber-50 text-amber-800"
@@ -342,7 +436,13 @@ export default function CartSheet({
                     {reachedMin ? (
                       <>¡Has completado el mínimo de compra!</>
                     ) : (
-                      <>Te faltan <b>{formatPEN(missing)}</b> para el mínimo de compra.</>
+                      <>
+                        Te faltan{" "}
+                        <b className="font-semibold">
+                          {formatPEN(missing)}
+                        </b>{" "}
+                        para el mínimo de compra.
+                      </>
                     )}
                   </div>
                 )}
@@ -357,7 +457,9 @@ export default function CartSheet({
                     <div className="space-y-5">
                       {suggestGroups.map((g) => (
                         <div key={g.key}>
-                          <div className="mb-2 text-[12px] text-neutral-600">{g.title}</div>
+                          <div className="mb-2 text-[12px] text-neutral-600">
+                            {g.title}
+                          </div>
                           <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
                             {g.items.map((opt) => (
                               <article
@@ -413,8 +515,12 @@ export default function CartSheet({
                 <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-neutral-100 ring-1 ring-black/5">
                   <span className="text-xl">🛒</span>
                 </div>
-                <h4 className="text-base font-semibold text-neutral-900">Tu carrito está vacío</h4>
-                <p className="mt-1 text-sm text-neutral-600">Agrega platos para continuar con tu pedido.</p>
+                <h4 className="text-base font-semibold text-neutral-900">
+                  Tu carrito está vacío
+                </h4>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Agrega platos para continuar con tu pedido.
+                </p>
                 <div className="mt-4">
                   <button
                     onClick={onClose}
@@ -429,26 +535,63 @@ export default function CartSheet({
         </div>
 
         {/* footer sticky */}
-        <div className="sticky bottom-0 border-t border-black/5 bg-white/90 backdrop-blur px-4 py-3 shrink-0">
-          <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-[15px] text-neutral-700">
-              Subtotal:{" "}
-              <span className="text-xl font-extrabold tracking-tight text-neutral-900">
-                {formatPEN(total)}
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={onPay}
-                className="h-11 rounded-xl bg-gradient-to-t from-emerald-600 to-emerald-500 px-5
-                           text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20
-                           hover:from-emerald-500 hover:to-emerald-400 active:scale-[.99] transition"
-              >
-                Pagar pedido
-              </button>
-            </div>
-          </div>
-        </div>
+<div className="sticky bottom-0 z-10 border-t border-neutral-100 bg-gradient-to-t from-white via-white/95 to-white/90 backdrop-blur-sm px-4 py-3 sm:py-4 shrink-0">
+  <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    {/* Subtotal */}
+    <div className="flex flex-col">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+        Subtotal <span className="font-normal lowercase text-neutral-400">(sin envío)</span>
+      </span>
+      <span className="mt-0.5 text-2xl font-extrabold leading-none tracking-tight text-neutral-900">
+        {formatPEN(total)}
+      </span>
+    </div>
+
+    {/* Botón de acción */}
+    <div className="flex flex-col items-stretch gap-1 sm:items-end">
+      <button
+        type="button"
+        onClick={onPay}
+        disabled={!hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)}
+        className={`
+          group inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-semibold text-white
+          transition-all duration-200
+          ${
+            !hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)
+              ? "bg-emerald-300 cursor-not-allowed opacity-70 shadow-none"
+              : "bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_12px_30px_rgba(16,185,129,0.45)] hover:translate-y-[1px] hover:shadow-[0_16px_40px_rgba(16,185,129,0.55)] active:translate-y-[2px]"
+          }
+        `}
+      >
+        <span className="mr-2">Pagar pedido</span>
+        <svg
+          className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path
+            d="M5 12h14M13 6l6 6-6 6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {MIN_SUBTOTAL > 0 && !reachedMin && (
+        <p className="text-[11px] text-neutral-500">
+          Te faltan{" "}
+          <span className="font-semibold text-neutral-800">
+            {formatPEN(missing)}
+          </span>{" "}
+          para completar el mínimo.
+        </p>
+      )}
+    </div>
+  </div>
+</div>
+
       </div>
     </div>
   );

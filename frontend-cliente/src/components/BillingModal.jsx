@@ -6,28 +6,31 @@ import { abandonarIntent } from "../services/checkout";
 
 /* ===================== ICONS ===================== */
 const IconCard = (p) => (
-  <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v1h14V7a1 1 0 0 0-1-1H6zm13 5H5v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6zM7 16h4a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2z"/></svg>
+  <svg viewBox="0 0 24 24" width="18" height="18" {...p}><path fill="currentColor" d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v1h14V7a1 1 0 0 0-1-1H6zm13 5H5v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6zM7 16h4a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2z"/></svg>
 );
 const IconYape = (p) => (
-  <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M17 2H7a3 3 0 0 0-3 3v14l4-3h9a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3z"/></svg>
+  <svg viewBox="0 0 24 24" width="18" height="18" {...p}><path fill="currentColor" d="M17 2H7a3 3 0 0 0-3 3v14l4-3h9a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3z"/></svg>
 );
 const IconCash = (p) => (
-  <svg viewBox="0 0 24 24" width="16" height="16" {...p}><path fill="currentColor" d="M3 6h18v12H3zM5 8v8h14V8H5zm7 2a3 3 0 110 6 3 3 0 010-6z"/></svg>
+  <svg viewBox="0 0 24 24" width="18" height="18" {...p}><path fill="currentColor" d="M3 6h18v12H3zM5 8v8h14V8H5zm7 2a3 3 0 110 6 3 3 0 010-6z"/></svg>
 );
 const IconLock = (p) => (
   <svg viewBox="0 0 24 24" width="14" height="14" {...p}><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z"/></svg>
 );
+const IconCheckCircle = (p) => (
+  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+);
 
-/* ===================== MODAL ===================== */
+/* ===================== MODAL PRINCIPAL ===================== */
 export default function BillingModal({
   open,
   onClose,
   loading = false,
-  onSubmit,          // crea/actualiza INTENT + PEDIDO
-  onPayCash,         // genera pedido con saldo pendiente por efectivo
-  MP,                // { CardPayment } desde @mercadopago/sdk-react
+  onSubmit,          
+  onPayCash,         
+  MP,                
   showCard = false,
-  orderInfo = null,  // { intentId, amount, restaurantId, pedidoId?, email? }
+  orderInfo = null,  
   onBackToForm,
   orderSummary = [],
   orderNote = "",
@@ -35,22 +38,19 @@ export default function BillingModal({
   const { billingMode } = useMenuPublic();
   const allowSunat = billingMode === "sunat";
 
-  // Solo 2 modos visibles: 'sunat' o 'simple'
   const [mode, setMode] = useState(allowSunat ? "sunat" : "simple");
 
-  // comunes
+  // Form states
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-
-  // sunat / simple
-  const [comprobante, setComprobante] = useState("boleta"); // SUNAT
+  const [comprobante, setComprobante] = useState("boleta");
   const [docType, setDocType] = useState("DNI");
   const [docNumber, setDocNumber] = useState("");
   const [address, setAddress] = useState("");
 
-  // estados UI
-  const [success, setSuccess] = useState(null); // { amount, pedidoId }
-  const [cashCreated, setCashCreated] = useState(null); // { amount, pedidoId }
+  // UI states
+  const [success, setSuccess] = useState(null);
+  const [cashCreated, setCashCreated] = useState(null);
   const [processing, setProcessing] = useState(false);
 
   const amountSoles = useMemo(
@@ -73,25 +73,11 @@ export default function BillingModal({
     e.preventDefault();
     setProcessing(true);
     try {
+      const commonData = { mode, docType, docNumber, name, email };
       if (mode === "sunat") {
-        await onSubmit?.({
-          mode: "sunat",
-          comprobante,
-          docType,
-          docNumber,
-          name,
-          address,
-          email,
-        });
+        await onSubmit?.({ ...commonData, comprobante, address });
       } else {
-        // 'simple'
-        await onSubmit?.({
-          mode: "simple",
-          docType: "DNI",
-          docNumber,
-          name,
-          email,
-        });
+        await onSubmit?.({ ...commonData, docType: "DNI" });
       }
     } finally {
       setProcessing(false);
@@ -108,7 +94,7 @@ export default function BillingModal({
   const showSuccess = (amount) => {
     setSuccess({
       amount: Number(amount || amountSoles || 0),
-      pedidoId: orderInfo?.pedidoId || orderInfo?.pedido_id || null,
+      pedidoId: orderInfo?.pedidoId || null,
     });
   };
   const showCashCreated = ({ amount, pedidoId }) => {
@@ -119,45 +105,56 @@ export default function BillingModal({
   };
 
   const headerTitle = success
-    ? "Pago recibido"
+    ? "¡Pago Exitoso!"
     : cashCreated
-      ? "Pedido generado (paga en caja)"
+      ? "Pedido Registrado"
       : showCard
-        ? "Pago seguro"
+        ? "Pago Seguro"
         : mode === "sunat"
-          ? "Datos para Boleta/Factura"
-          : "Datos para Boleta Simple";
+          ? "Datos de Facturación"
+          : "Datos del Cliente";
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6 bg-black/50 sm:bg-black/40"
+      className="
+        fixed inset-0 z-[9999] flex items-end sm:items-center justify-center 
+        bg-neutral-900/60 backdrop-blur-sm transition-opacity duration-300
+      "
       role="dialog"
       aria-modal="true"
     >
       <div className="
-        w-full max-w-[560px] sm:max-w-5xl overflow-hidden
-        rounded-3xl border border-white/10 bg-white/70
-        backdrop-blur-md sm:backdrop-blur-xl
-        shadow-[0_10px_40px_-5px_rgba(0,0,0,.25)]
-        ring-1 ring-black/5 max-h-[92svh] flex flex-col
+        relative w-full max-w-[500px] sm:max-w-4xl 
+        bg-white shadow-2xl ring-1 ring-black/5 
+        flex flex-col 
+        h-[92dvh] sm:h-auto sm:max-h-[90vh]
+        rounded-t-[32px] rounded-b-none sm:rounded-[32px]
+        transform transition-all duration-300
       ">
-        {/* Header */}
-        <div className="flex items-center justify-between px-3 py-3 sm:px-6 sm:py-4 shrink-0 bg-gradient-to-r from-white/70 to-white/40">
-          <h2 className="text-base sm:text-lg font-semibold tracking-tight text-neutral-900" id="billing-title">
-            {headerTitle}
-          </h2>
+        
+        {/* Header Sticky */}
+        <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-100 bg-white sticky top-0 z-10 rounded-t-[32px]">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
+              {headerTitle}
+            </h2>
+            {!success && !cashCreated && (
+               <p className="text-xs text-gray-500 mt-0.5">Completa la información para continuar</p>
+            )}
+          </div>
           <button
             type="button"
-            className="rounded-full p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+            className="rounded-full bg-gray-100 p-2 text-gray-500 hover:bg-gray-200 hover:text-gray-900 transition-colors focus:outline-none"
             onClick={handleHeaderClose}
-            aria-label="Cerrar"
           >
-            ✕
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
-        {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2 sm:p-6" aria-labelledby="billing-title">
+        {/* Body Scrollable */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 bg-gray-50/50">
           {success ? (
             <SuccessView
               amount={success.amount}
@@ -195,151 +192,81 @@ export default function BillingModal({
               }}
             />
           ) : (
-            <form onSubmit={submitForm} noValidate className="max-w-full">
-              {/* ====== Selector principal (solo 2 opciones) ====== */}
-              <div className="mb-3 inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
+            <form onSubmit={submitForm} noValidate className="max-w-xl mx-auto pb-6">
+              
+              <div className="mb-5 flex p-1 bg-gray-100 rounded-2xl">
                 {allowSunat && (
                   <TogglePill active={mode === "sunat"} onClick={() => setMode("sunat")}>
-                    Boleta/Factura
+                    Boleta / Factura
                   </TogglePill>
                 )}
                 <TogglePill active={mode === "simple"} onClick={() => setMode("simple")}>
-                  Boleta simple
+                  Boleta Simple
                 </TogglePill>
               </div>
 
-              {/* ====== SUNAT ====== */}
-              {mode === "sunat" ? (
-                <>
-                  {/* Selector Boleta/Factura */}
-                  <div className="mb-3 inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
-                    <TogglePill
-                      active={comprobante === "boleta"}
-                      onClick={() => { setComprobante("boleta"); if (docType !== "DNI") setDocType("DNI"); }}
-                    >
-                      Boleta
-                    </TogglePill>
-                    <TogglePill
-                      active={comprobante === "factura"}
-                      onClick={() => { setComprobante("factura"); setDocType("RUC"); }}
-                    >
-                      Factura
-                    </TogglePill>
-                  </div>
+              <div className="bg-white rounded-3xl shadow-sm ring-1 ring-gray-100 p-4 sm:p-6 space-y-4">
+                {mode === "sunat" ? (
+                  <>
+                    <div className="flex p-1 bg-gray-50 rounded-xl w-full sm:w-auto self-start border border-gray-100">
+                      <TogglePill active={comprobante === "boleta"} onClick={() => { setComprobante("boleta"); if (docType !== "DNI") setDocType("DNI"); }} small>Boleta</TogglePill>
+                      <TogglePill active={comprobante === "factura"} onClick={() => { setComprobante("factura"); setDocType("RUC"); }} small>Factura</TogglePill>
+                    </div>
 
-                  <div className="rounded-2xl border bg-white/80 shadow-sm ring-1 ring-black/5">
-                    <div className="grid gap-3 p-4 sm:grid-cols-3">
-                      <div>
-                        <Label small>Tipo doc.</Label>
-                        <select
-                          id="billing-docType"
-                          name="no-autofill-doctype"
-                          autoComplete="off"
-                          className="w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-neutral-900 outline-none ring-0 transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-neutral-50"
-                          value={docType}
-                          onChange={(e) => setDocType(e.target.value)}
-                          disabled={comprobante === "factura"}
-                        >
-                          <option value="DNI">DNI</option>
-                          <option value="RUC">RUC</option>
-                        </select>
+                    <div className="grid gap-4 sm:gap-5 sm:grid-cols-3">
+                      <div className="sm:col-span-1">
+                        <Label>Tipo Documento</Label>
+                        <div className="relative">
+                          <select
+                            className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 font-medium outline-none disabled:opacity-60"
+                            value={docType}
+                            onChange={(e) => setDocType(e.target.value)}
+                            disabled={comprobante === "factura"}
+                          >
+                            <option value="DNI">DNI</option>
+                            <option value="RUC">RUC</option>
+                          </select>
+                        </div>
                       </div>
-
-                      <LabeledInput
-                        id="billing-docNumber"
-                        className="sm:col-span-2"
-                        label={docType === "RUC" ? "RUC" : "DNI"}
-                        value={docNumber}
-                        onChange={(v) => setDocNumber(v.replace(/\D+/g, "").slice(0, docType === "RUC" ? 11 : 8))}
-                        placeholder={docType === "RUC" ? "11 dígitos" : "8 dígitos"}
-                        inputMode="numeric"
-                        required
-                      />
-
-                      <LabeledInput
-                        id="billing-name-sunat"
-                        className="sm:col-span-3"
-                        label={docType === "RUC" ? "Razón Social" : "Nombres y Apellidos"}
-                        value={name}
-                        onChange={setName}
-                        placeholder={docType === "RUC" ? "Mi Empresa S.A.C." : "Juan Pérez"}
-                        required
-                      />
-
-                      <LabeledInput
-                        id="billing-address"
-                        className="sm:col-span-3"
-                        label={<>Dirección <span className="text-neutral-400">(opcional)</span></>}
-                        value={address}
-                        onChange={setAddress}
-                        placeholder="Av. Principal 123"
-                      />
-
+                      <div className="sm:col-span-2">
+                        <LabeledInput id="billing-docNumber" label={docType === "RUC" ? "RUC" : "DNI"} value={docNumber} onChange={(v) => setDocNumber(v.replace(/\D+/g, "").slice(0, docType === "RUC" ? 11 : 8))} placeholder="Número de documento" inputMode="numeric" required />
+                      </div>
                       <div className="sm:col-span-3">
-                        <LabeledInput
-                          id="billing-email-sunat"
-                          type="email"
-                          label={<>Email <span className="text-neutral-400">(opcional)</span></>}
-                          value={email}
-                          onChange={setEmail}
-                          placeholder="cliente@correo.com"
-                        />
-                        <p className="mt-1 text-[11px] text-neutral-500">Lo usamos para enviarte el comprobante.</p>
+                        <LabeledInput id="billing-name-sunat" label={docType === "RUC" ? "Razón Social" : "Nombres"} value={name} onChange={setName} placeholder="Nombre del titular" required />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <LabeledInput id="billing-address" label="Dirección (Opcional)" value={address} onChange={setAddress} placeholder="Dirección fiscal" />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <LabeledInput id="billing-email-sunat" type="email" label="Email (Opcional)" value={email} onChange={setEmail} placeholder="cliente@email.com" />
                       </div>
                     </div>
-                  </div>
-
-                  <FooterActions
-                    primaryLabel={loading || processing ? "Procesando…" : "Continuar a pagar"}
-                    primaryDisabled={loading || processing}
-                    onCancel={onClose}
-                  />
-                </>
-              ) : (
-                /* ====== SIMPLE ====== */
-                <>
-                  <div className="rounded-2xl border bg-white/80 shadow-sm ring-1 ring-black/5">
-                    <div className="grid gap-3 p-4 sm:grid-cols-3">
-                      <LabeledInput
-                        id="billing-docNumber-simple"
-                        label="DNI (opcional)"
-                        value={docNumber}
-                        onChange={(v) => setDocNumber(String(v).replace(/\D+/g, "").slice(0, 8))}
-                        placeholder="8 dígitos"
-                        inputMode="numeric"
-                        className="sm:col-span-1"
-                      />
-                      <LabeledInput
-                        id="billing-name-simple"
-                        className="sm:col-span-2"
-                        label="Nombres y Apellidos"
-                        value={name}
-                        onChange={setName}
-                        placeholder="Juan Pérez"
-                      />
-                      <LabeledInput
-                        id="billing-email-simple"
-                        className="sm:col-span-3"
-                        type="email"
-                        label={<>Email <span className="text-neutral-400">(opcional)</span></>}
-                        value={email}
-                        onChange={setEmail}
-                        placeholder="cliente@correo.com"
-                      />
+                  </>
+                ) : (
+                  <>
+                    <div className="grid gap-4 sm:gap-5 sm:grid-cols-3">
+                      <div className="sm:col-span-1">
+                        <LabeledInput id="billing-docNumber-simple" label="DNI (Opcional)" value={docNumber} onChange={(v) => setDocNumber(String(v).replace(/\D+/g, "").slice(0, 8))} placeholder="8 dígitos" inputMode="numeric" />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <LabeledInput id="billing-name-simple" label="Nombre" value={name} onChange={setName} placeholder="Nombre del cliente" />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <LabeledInput id="billing-email-simple" type="email" label="Email (Opcional)" value={email} onChange={setEmail} placeholder="cliente@email.com" />
+                      </div>
                     </div>
-                  </div>
+                    <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-blue-700 text-xs">
+                      <span>Comprobante interno sin valor fiscal.</span>
+                    </div>
+                  </>
+                )}
+              </div>
 
-                  <p className="mt-2 text-[11px] text-neutral-500">
-                    Se emitirá un <b>recibo simple</b> (no electrónico) con estos datos.
-                  </p>
-
-                  <FooterActions
-                    primaryLabel={loading || processing ? "Procesando…" : "Continuar a pagar"}
-                    primaryDisabled={loading || processing}
-                    onCancel={onClose}
-                  />
-                </>
-              )}
+              <FooterActions
+                primaryLabel={loading || processing ? "Procesando..." : "Continuar"}
+                primaryDisabled={loading || processing}
+                onCancel={onClose}
+              />
             </form>
           )}
         </div>
@@ -348,53 +275,38 @@ export default function BillingModal({
   );
 }
 
-/* ===================== PAY TABS (KEEP-ALIVE) ===================== */
+/* ===================== PAY TABS (Fixed for React/DOM errors) ===================== */
 function PayTabs({
   MP,
   amountSoles,
-  orderInfo,     // { intentId, restaurantId, pedidoId?, email? }
+  orderInfo,
   onBackToForm,
-  onClose,
   orderSummary,
   onMpApproved,
   onCashCreate,
 }) {
-  const [tab, setTab] = useState("card"); // 'card' | 'yape' | 'cash'
-
-  const totalRight = (
-    <div className="rounded-2xl border bg-white/80 backdrop-blur p-4 shadow-sm ring-1 ring-black/5">
-      <div className="text-sm text-neutral-600">Total a pagar</div>
-      <div className="mt-1 text-3xl font-extrabold text-neutral-900">S/ {amountSoles.toFixed(2)}</div>
-      <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 text-xs text-neutral-700">
-        <IconLock className="opacity-70" /> Procesado por Mercado Pago
-      </div>
-      <div className="mt-2 inline-block rounded-md bg-neutral-100 px-2 py-1 text-xs text-neutral-700">
-        Intent #{String(orderInfo?.intentId || "").slice(0, 8)}
-      </div>
-    </div>
-  );
+  const [tab, setTab] = useState("card");
 
   return (
-    <div className="grid gap-6 md:grid-cols-[2fr_1fr] min-w-0">
+    <div className="grid gap-6 lg:grid-cols-[1fr_340px] pb-4">
       {/* IZQUIERDA */}
-      <section className="min-w-0">
-        {/* Tabs */}
-        <div className="inline-flex rounded-full bg-neutral-100 p-1 ring-1 ring-black/5">
-          <TogglePill active={tab === "card"} onClick={() => setTab("card")}>
-            <span className="mr-1.5 inline-flex"><IconCard /></span>Tarjeta
-          </TogglePill>
-          <TogglePill active={tab === "yape"} onClick={() => setTab("yape")}>
-            <span className="mr-1.5 inline-flex"><IconYape /></span>Yape
-          </TogglePill>
-          <TogglePill active={tab === "cash"} onClick={() => setTab("cash")}>
-            <span className="mr-1.5 inline-flex"><IconCash /></span>Efectivo
-          </TogglePill>
+      <section className="flex flex-col">
+        <div className="flex p-1 bg-gray-100 rounded-xl mb-5 w-full overflow-x-auto no-scrollbar snap-x">
+          <TogglePill active={tab === "card"} onClick={() => setTab("card")}><span className="mr-1.5"><IconCard /></span>Tarjeta</TogglePill>
+          <TogglePill active={tab === "yape"} onClick={() => setTab("yape")}><span className="mr-1.5"><IconYape /></span>Yape</TogglePill>
+          <TogglePill active={tab === "cash"} onClick={() => setTab("cash")}><span className="mr-1.5"><IconCash /></span>Efectivo</TogglePill>
         </div>
 
-        <div className="mt-4 rounded-2xl border bg-white/80 p-3 sm:p-4 shadow-sm ring-1 ring-black/5">
+        <div className="flex-1 bg-white rounded-2xl border border-gray-100 p-1 shadow-sm min-h-[350px]">
+          {/* CORRECCIÓN CLAVE: 
+             Usamos renderizado condicional (&&) en lugar de CSS hidden.
+             Esto evita que MercadoPago intente renderizar en un div oculto (width=0),
+             lo cual causa el error "Node not found".
+          */}
+          
           {/* Tarjeta */}
-          <div className={`${tab === "card" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
-            <div className="min-h-[360px] w-full">
+          {tab === "card" && (
+            <div className="px-1 py-2 animate-in fade-in zoom-in duration-300">
               <CardBrick
                 MP={MP}
                 amountSoles={amountSoles}
@@ -404,442 +316,228 @@ function PayTabs({
                 onApproved={() => onMpApproved?.()}
               />
             </div>
-            <p className="mt-2 text-[11px] text-neutral-500">Pago seguro con campos protegidos.</p>
-          </div>
+          )}
 
           {/* Yape */}
-          <div className={`${tab === "yape" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
-            <h3 className="mb-3 text-sm font-medium text-neutral-900">Pagar con Yape</h3>
-            <YapeForm
-              amountSoles={amountSoles}
-              intentId={orderInfo?.intentId}
-              restaurantId={orderInfo?.restaurantId}
-              pedidoId={orderInfo?.pedidoId}
-              buyerEmail={orderInfo?.email}
-              onApproved={() => onMpApproved?.()}
-            />
-          </div>
+          {tab === "yape" && (
+            <div className="p-4 sm:p-6 animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600"><IconYape /></div>
+                <h3 className="text-lg font-bold text-gray-900">Pagar con Yape</h3>
+              </div>
+              <YapeForm
+                amountSoles={amountSoles}
+                intentId={orderInfo?.intentId}
+                restaurantId={orderInfo?.restaurantId}
+                pedidoId={orderInfo?.pedidoId}
+                buyerEmail={orderInfo?.email}
+                onApproved={() => onMpApproved?.()}
+              />
+            </div>
+          )}
 
           {/* Efectivo */}
-          <div className={`${tab === "cash" ? "" : "hidden"}`} style={{ minHeight: 360 }}>
-            <h3 className="mb-3 text-sm font-medium text-neutral-900">Efectivo en local</h3>
-            <p className="mb-3 text-sm text-neutral-700">
-              Generaremos tu pedido y quedará <b>pendiente por pagar en caja</b>.
-              Muéstrale tu número de pedido al mozo para completar el cobro.
-            </p>
-            <button
-              type="button"
-              onClick={onCashCreate}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-700/20 hover:bg-emerald-700"
-            >
-              Confirmar y pagar en caja (S/ {amountSoles.toFixed(2)})
-            </button>
-          </div>
-        </div>
-
-        {/* Footer izquierda */}
-        <div className="sticky bottom-0 mt-3 -mx-3 border-t bg-white/95 px-3 py-3 md:static md:m-0 md:border-0 md:bg-transparent md:p-0">
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onBackToForm}
-              className="rounded-lg border px-4 py-2 text-sm text-neutral-700 shadow-sm hover:bg-neutral-50"
-            >
-              ← Volver a datos
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-neutral-800"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
-
-        {/* En móvil: total + resumen */}
-        <div className="mt-3 md:hidden">
-          <details className="rounded-2xl border bg-white/80 shadow-sm ring-1 ring-black/5">
-            <summary className="cursor-pointer list-none px-4 py-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-neutral-600">Total a pagar</span>
-                <span className="text-xl font-extrabold text-neutral-900">S/ {amountSoles.toFixed(2)}</span>
+          {tab === "cash" && (
+            <div className="p-4 sm:p-6 animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600"><IconCash /></div>
+                <h3 className="text-lg font-bold text-gray-900">Pagar en Caja</h3>
               </div>
-              <div className="text-[11px] text-neutral-500">Toca para ver el resumen</div>
-            </summary>
-            <div className="border-t p-4">
-              <OrderSummary orderSummary={orderSummary} />
+              <p className="text-gray-600 text-sm mb-6">Generaremos tu pedido y quedará pendiente. Paga en caja.</p>
+              <button type="button" onClick={onCashCreate} className="w-full rounded-xl bg-gray-900 py-3.5 text-sm font-bold text-white hover:bg-gray-800 transition-all">Confirmar (S/ {amountSoles.toFixed(2)})</button>
             </div>
-          </details>
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-start">
+          <button type="button" onClick={onBackToForm} className="text-sm font-medium text-gray-500 hover:text-gray-900 flex items-center gap-1">← Editar datos</button>
         </div>
       </section>
 
-      {/* DERECHA */}
-      <aside className="hidden space-y-4 md:block">
-        {totalRight}
-        <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-          <h4 className="mb-2 text-sm font-medium text-neutral-900">Resumen del pedido</h4>
-          <OrderSummary orderSummary={orderSummary} />
+      {/* DERECHA: Resumen */}
+      <aside className="hidden lg:block h-full">
+        <div className="h-full rounded-3xl bg-gray-900 p-6 text-white shadow-xl flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-[-20%] right-[-20%] w-40 h-40 rounded-full bg-gray-800/50 blur-2xl pointer-events-none"></div>
+          <div>
+            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total</div>
+            <div className="mt-1 text-3xl font-bold text-white tracking-tight">S/ {amountSoles.toFixed(2)}</div>
+            <div className="mt-3 flex items-center gap-1.5 text-[10px] text-gray-400 bg-gray-800/60 py-1 px-2.5 rounded-lg w-fit"><IconLock className="w-3 h-3 text-emerald-400" /> <span>Seguro 256-bit</span></div>
+          </div>
+          <div className="mt-6 pt-6 border-t border-gray-800">
+            <div className="text-[10px] text-gray-500 mb-2 font-medium uppercase">Ítems</div>
+            <div className="max-h-[150px] overflow-y-auto pr-1 custom-scrollbar"><OrderSummary orderSummary={orderSummary} dark /></div>
+          </div>
         </div>
       </aside>
+
+      <div className="lg:hidden mt-4">
+        <div className="rounded-xl bg-gray-50 p-3 border border-gray-200">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-bold text-sm text-gray-700">Total</span>
+            <span className="font-bold text-lg text-gray-900">S/ {amountSoles.toFixed(2)}</span>
+          </div>
+          <div className="pt-2 border-t border-gray-200"><OrderSummary orderSummary={orderSummary} /></div>
+        </div>
+      </div>
     </div>
   );
 }
 
-/* ===================== PIEZAS ===================== */
-function OrderSummary({ orderSummary }) {
-  if (!Array.isArray(orderSummary) || orderSummary.length === 0) {
-    return <div className="text-sm text-neutral-600">Sin ítems.</div>;
-  }
+/* ===================== UI HELPERS & VIEWS ===================== */
+function OrderSummary({ orderSummary, dark }) {
+  if (!Array.isArray(orderSummary) || orderSummary.length === 0) return <div className={`text-xs ${dark ? "text-gray-500" : "text-gray-400"}`}>Sin ítems.</div>;
   return (
-    <ul className="divide-y text-sm">
+    <ul className={`space-y-1.5 text-xs ${dark ? "text-gray-300" : "text-gray-600"}`}>
       {orderSummary.map((it, idx) => (
-        <li key={idx} className="flex items-center justify-between py-2">
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-neutral-900 truncate">{it.name}</div>
-            <div className="text-xs text-neutral-500">x{it.qty}</div>
+        <li key={idx} className="flex justify-between items-start gap-2">
+          <div className="flex gap-1.5 overflow-hidden">
+            <span className={`font-bold whitespace-nowrap ${dark ? "text-white" : "text-gray-900"}`}>{it.qty}x</span>
+            <span className="truncate">{it.name}</span>
           </div>
-          <div className="ml-3 text-right text-neutral-900">
-            S/ {(Number(it.price || 0) * Number(it.qty || 1)).toFixed(2)}
-          </div>
+          <div className={`font-medium whitespace-nowrap ${dark ? "text-white" : "text-gray-900"}`}>S/ {(Number(it.price||0)*Number(it.qty||1)).toFixed(2)}</div>
         </li>
       ))}
     </ul>
   );
 }
 
+function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
+  return (
+    <div className="flex flex-col items-center text-center py-6 animate-in fade-in zoom-in">
+      <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-4"><IconCheckCircle /></div>
+      <h2 className="text-xl font-bold text-gray-900 mb-1">¡Pago Exitoso!</h2>
+      <p className="text-sm text-gray-500 mb-6">Pedido confirmado.</p>
+      <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm mb-6 text-left overflow-hidden">
+        <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between"><span className="text-xs font-bold text-gray-500">TOTAL</span><span className="text-sm font-bold text-gray-900">S/ {Number(amount||0).toFixed(2)}</span></div>
+        <div className="p-4">
+          {pedidoId && <div className="text-sm mb-2 text-gray-900">Pedido <b>#{pedidoId}</b></div>}
+          <OrderSummary orderSummary={orderSummary} />
+        </div>
+      </div>
+      <button onClick={onClose} className="rounded-full bg-gray-900 px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-gray-800 transition-all">Finalizar</button>
+    </div>
+  );
+}
+
+function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
+  return (
+    <div className="flex flex-col items-center text-center py-6 animate-in fade-in zoom-in">
+      <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mb-4"><IconCash /></div>
+      <h2 className="text-xl font-bold text-gray-900 mb-1">Pedido Creado</h2>
+      <p className="text-sm text-gray-500 mb-6">Paga en caja para finalizar.</p>
+      <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm mb-6 text-left overflow-hidden">
+        <div className="bg-amber-50 px-4 py-3 border-b border-amber-100 flex justify-between"><span className="text-xs font-bold text-amber-800">POR PAGAR</span><span className="text-sm font-bold text-amber-900">S/ {Number(amount||0).toFixed(2)}</span></div>
+        <div className="p-4">
+          {pedidoId && <div className="text-sm mb-2 text-gray-900">Pedido <b>#{pedidoId}</b></div>}
+          <OrderSummary orderSummary={orderSummary} />
+        </div>
+      </div>
+      <button onClick={onClose} className="rounded-full bg-gray-900 px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-gray-800 transition-all">Entendido</button>
+    </div>
+  );
+}
+
 /* ===================== CARD BRICK ===================== */
-const CardBrick = React.memo(function CardBrick({
-  MP,
-  amountSoles,
-  intentId,
-  restaurantId,
-  pedidoId,
-  onApproved,
-}) {
+const CardBrick = React.memo(function CardBrick({ MP, amountSoles, intentId, restaurantId, pedidoId, onApproved }) {
   const PaymentCmp = MP?.CardPayment;
   const [ready, setReady] = useState(false);
   const [errMsg, setErrMsg] = useState("");
-
-  const brickKey = useMemo(
-    () => `intent-${intentId || "na"}-amt-${Number(amountSoles).toFixed(2)}`,
-    [intentId, amountSoles]
-  );
+  const brickKey = useMemo(() => `intent-${intentId||"na"}-amt-${Number(amountSoles).toFixed(2)}`, [intentId, amountSoles]);
   const containerId = `mp-card-${brickKey}`;
   const init = useMemo(() => ({ amount: Number(amountSoles) }), [amountSoles]);
 
-  if (!PaymentCmp) {
-    return (
-      <div className="rounded-lg border bg-white p-3 text-sm text-rose-700">
-        No se pudo cargar el formulario de pago.
-      </div>
-    );
-  }
+  if (!PaymentCmp) return <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-700">Error carga pago.</div>;
 
-  const handleSubmit = (cardData) =>
-    new Promise(async (resolve, reject) => {
-      try {
-        const fd = cardData?.formData || cardData;
-        if (!fd?.token) {
-          alert("Completa los datos de la tarjeta");
-          return reject(new Error("Token no generado por el Brick"));
-        }
-
-        const resp = await payWithCardViaBrick({
-          amount: Number(amountSoles),
-          formData: {
-            token: fd.token,
-            payment_method_id: fd.payment_method_id,
-            issuer_id: fd.issuer_id,
-            installments: Number(fd.installments || 1),
-            payer: { email: fd?.payer?.email || "", identification: fd?.payer?.identification },
-          },
-          description: `Pedido ${pedidoId ?? "-"} / Intent ${intentId}`,
-          metadata: { intentId, restaurantId, pedidoId },
-          idempotencyKey: String(intentId || pedidoId || Date.now()),
-        });
-
-        if (resp?.status === "approved") onApproved?.();
-        else alert(`Estado: ${resp?.status}${resp?.status_detail ? ` (${resp.status_detail})` : ""}`);
-        resolve(resp);
-      } catch (e) {
-        setErrMsg(e?.message || "Error procesando tarjeta");
-        reject(e);
-      }
-    });
+  const handleSubmit = (cardData) => new Promise(async (resolve, reject) => {
+    try {
+      const fd = cardData?.formData || cardData;
+      if (!fd?.token) { alert("Completa los datos"); return reject(new Error("Token no generado")); }
+      const resp = await payWithCardViaBrick({
+        amount: Number(amountSoles),
+        formData: { token: fd.token, payment_method_id: fd.payment_method_id, issuer_id: fd.issuer_id, installments: Number(fd.installments||1), payer: { email: fd?.payer?.email||"", identification: fd?.payer?.identification }},
+        description: `Pedido ${pedidoId??"-"}`,
+        metadata: { intentId, restaurantId, pedidoId },
+        idempotencyKey: String(intentId||pedidoId||Date.now()),
+      });
+      if (resp?.status === "approved") onApproved?.();
+      else alert(`Estado: ${resp?.status}`);
+      resolve(resp);
+    } catch (e) { setErrMsg("Error procesando tarjeta"); reject(e); }
+  });
 
   return (
-    <div className="mp-card-wrap min-h-[360px] w-full">
-      <PaymentCmp
-        key={brickKey}
-        containerProps={{ id: containerId, style: { width: "100%", minWidth: 0 } }}
-        initialization={init}
-        onSubmit={handleSubmit}
-        onReady={() => setReady(true)}
-        onError={(e) => setErrMsg(e?.message || "No se pudo inicializar el formulario de pago")}
-      />
-      {!ready && !errMsg && (
-        <div className="mt-2 rounded-lg border bg-white p-3 text-sm text-neutral-600">
-          Cargando formulario de pago…
-        </div>
-      )}
-      {!!errMsg && (
-        <div className="mt-2 rounded-lg border bg-white p-3 text-sm text-rose-700">
-          {errMsg}
-        </div>
-      )}
+    <div className="mp-card-wrap w-full">
+      <PaymentCmp key={brickKey} containerProps={{ id: containerId, style: { width: "100%", minWidth: 0 } }} initialization={init} onSubmit={handleSubmit} onReady={() => setReady(true)} onError={() => setErrMsg("Error pago")} />
+      {!ready && !errMsg && <div className="flex items-center justify-center h-48 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">Cargando tarjeta...</div>}
+      {!!errMsg && <div className="mt-2 text-xs text-rose-600">{errMsg}</div>}
     </div>
   );
 });
 
-/* ===================== YAPE FORM ===================== */
 function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, onApproved }) {
-  const [phone, setPhone] = React.useState("");
-  const [otp, setOtp] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
-
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
   const MIN = Number(import.meta.env.VITE_YAPE_MIN ?? 3);
-  const raw = Number(amountSoles);
-  const amt = Number.isFinite(raw) && raw > 0 ? Math.round(raw * 100) / 100 : 1;
+  const amt = Number(amountSoles) > 0 ? Math.round(Number(amountSoles)*100)/100 : 1;
   const belowMin = amt < MIN;
 
   const submit = async (e) => {
     e.preventDefault();
-    if (belowMin) {
-      alert(`El mínimo para Yape es S/ ${MIN.toFixed(2)}`);
-      return;
-    }
+    if(belowMin) return alert(`Mínimo Yape: S/ ${MIN.toFixed(2)}`);
     setLoading(true);
     try {
       const pk = (window).__MP_INIT_KEY;
-      if (!window.MercadoPago || !pk) {
-        alert("Mercado Pago no está inicializado.");
-        return;
-      }
-
-      const mp = window.__MP_SINGLETON || (window.__MP_SINGLETON =
-        new window.MercadoPago(pk, { locale: "es-PE" }));
-
+      if(!window.MercadoPago||!pk) return alert("Error MP");
+      const mp = window.__MP_SINGLETON || (window.__MP_SINGLETON = new window.MercadoPago(pk, { locale: "es-PE" }));
       const yape = mp.yape({ phoneNumber: phone, otp });
       const { id: token } = await yape.create();
-
-      const safeEmail =
-        (buyerEmail || "").trim() || `yape+${intentId || Date.now()}@example.com`;
-
-      const resp = await payWithYape({
-        token,
-        amount: amt,
-        email: safeEmail,
-        description: `Intent ${intentId}`,
-        metadata: { intentId, restaurantId, pedidoId },
-        idempotencyKey: String(intentId || pedidoId || Date.now()),
-      });
-
-      if (resp?.status === "approved") onApproved?.();
-      else alert(`Estado: ${resp?.status}${resp?.status_detail ? ` (${resp.status_detail})` : ""}`);
-    } catch (err) {
-      console.error(err);
-      alert("No se pudo tokenizar Yape");
-    } finally {
-      setLoading(false);
-    }
+      const resp = await payWithYape({ token, amount: amt, email: buyerEmail||"yape@temp.com", description: `Pedido ${pedidoId}`, metadata: { intentId, restaurantId, pedidoId }, idempotencyKey: String(Date.now()) });
+      if(resp?.status === "approved") onApproved?.();
+      else alert(`Estado: ${resp?.status}`);
+    } catch(e){ alert("Error Yape"); } finally { setLoading(false); }
   };
 
   return (
-    <form onSubmit={submit} className="space-y-4 text-neutral-900">
-      {belowMin && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-          El monto mínimo para Yape es <b>S/ {MIN.toFixed(2)}</b>.
-        </div>
-      )}
-      <FloatingInput
-        label="Celular"
-        value={phone}
-        onChange={(v) => setPhone(String(v).replace(/\D+/g, ""))}
-        placeholder="9xxxxxxxx"
-        inputMode="numeric"
-        required
-      />
-      <FloatingInput
-        label="OTP (6 dígitos)"
-        value={otp}
-        onChange={(v) => setOtp(String(v).replace(/\D+/g, "").slice(0, 6))}
-        placeholder="Código de Yape"
-        inputMode="numeric"
-        required
-      />
-      <button
-        type="submit"
-        disabled={loading || belowMin}
-        className="group inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
-      >
-        <span className="mr-2 inline-flex"><IconYape /></span>
-        {loading ? "Procesando…" : "Pagar con Yape"}
-      </button>
-      <p className="text-[12px] text-neutral-600">Se cobrará <b>S/ {amt.toFixed(2)}</b> vía Yape.</p>
+    <form onSubmit={submit} className="space-y-5">
+      {belowMin && <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded">Mínimo S/ {MIN.toFixed(2)}</div>}
+      <div className="space-y-3">
+        <FloatingInput label="Celular" value={phone} onChange={(v)=>setPhone(String(v).replace(/\D+/g,""))} placeholder="9xxxxxxxx" inputMode="numeric" required icon={<span className="text-gray-400 text-lg">📱</span>} />
+        <FloatingInput label="Código OTP" value={otp} onChange={(v)=>setOtp(String(v).replace(/\D+/g,"").slice(0,6))} placeholder="6 dígitos" inputMode="numeric" required icon={<span className="text-gray-400 text-lg">🔒</span>} />
+      </div>
+      <button type="submit" disabled={loading||belowMin} className="w-full rounded-xl bg-[#742384] py-3.5 text-sm font-bold text-white shadow-lg hover:bg-[#5e1c6b] disabled:opacity-60 transition-all">{loading?"Procesando...":`Yapear S/ ${amt.toFixed(2)}`}</button>
     </form>
   );
 }
 
-/* ===================== SUCCESS (CARD/YAPE) ===================== */
-function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
-        <div className="font-semibold text-emerald-900">¡Gracias por tu compra!</div>
-        {pedidoId ? <div className="text-sm">Pedido #{pedidoId}</div> : null}
-      </div>
-
-      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-        <div className="text-sm text-neutral-600">Total pagado</div>
-        <div className="mt-1 text-3xl font-extrabold text-neutral-900">S/ {Number(amount || 0).toFixed(2)}</div>
-        <div className="mt-1 inline-flex items-center gap-1 text-xs text-neutral-600"><IconLock /> Procesado por Mercado Pago</div>
-      </div>
-
-      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-        <h4 className="mb-2 text-sm font-medium text-neutral-900">Resumen del pedido</h4>
-        {(!orderSummary || orderSummary.length === 0) ? (
-          <div className="text-sm text-neutral-600">Sin ítems.</div>
-        ) : (
-          <OrderSummary orderSummary={orderSummary} />
-        )}
-        {note ? (
-          <div className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">
-            <div className="mb-1 font-medium text-neutral-900">Nota para cocina</div>
-            <div>{note}</div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="text-right">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-neutral-800"
-        >
-          Cerrar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ===================== CASH CREATED ===================== */
-function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
-        <div className="font-semibold text-amber-900">Pedido generado</div>
-        <div className="text-sm">Muéstralo en caja para pagar en efectivo.</div>
-        {pedidoId ? <div className="text-sm mt-1">Pedido #{pedidoId}</div> : null}
-      </div>
-
-      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-        <div className="text-sm text-neutral-600">Importe a pagar en caja</div>
-        <div className="mt-1 text-3xl font-extrabold text-neutral-900">S/ {Number(amount || 0).toFixed(2)}</div>
-      </div>
-
-      <div className="rounded-2xl border bg-white/80 p-4 shadow-sm ring-1 ring-black/5">
-        <h4 className="mb-2 text-sm font-medium text-neutral-900">Resumen del pedido</h4>
-        {(!orderSummary || orderSummary.length === 0) ? (
-          <div className="text-sm text-neutral-600">Sin ítems.</div>
-        ) : (
-          <OrderSummary orderSummary={orderSummary} />
-        )}
-        {note ? (
-          <div className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">
-            <div className="mb-1 font-medium text-neutral-900">Nota para cocina</div>
-            <div>{note}</div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="text-right">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-neutral-800"
-        >
-          Cerrar
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ===================== UI ATOMS ===================== */
-function Label({ children, small }) {
-  return <label className={`${small ? "text-[12px]" : "text-xs"} mb-1 block font-medium text-neutral-600`}>{children}</label>;
-}
+function Label({ children }) { return <label className="mb-1 block text-[11px] font-bold text-gray-500 uppercase tracking-wide ml-1">{children}</label>; }
 function LabeledInput({ id, label, value, onChange, className = "", ...rest }) {
   return (
     <div className={className}>
-      {label ? <Label>{label}</Label> : null}
-      <input
-        id={id}
-        name={`no-autofill-${id}`}
-        autoComplete="off"
-        className="w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5
-                   text-neutral-900 outline-none transition placeholder:text-neutral-400
-                   focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-        value={value}
-        onChange={(e) => onChange?.(e.target.value)}
-        {...rest}
-      />
+      {label && <Label>{label}</Label>}
+      <input id={id} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 font-medium outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100 transition-all" value={value} onChange={(e)=>onChange?.(e.target.value)} {...rest} />
     </div>
   );
 }
-function FloatingInput({ label, value, onChange, className = "", ...rest }) {
-  const active = String(value || "").length > 0;
+function FloatingInput({ label, value, onChange, className="", icon, ...rest }) {
   return (
-    <div className={`relative ${className}`}>
-      <input
-        className={`peer w-full rounded-xl border bg-white px-3.5 pt-5 pb-2.5 text-[15px]
-                    text-neutral-900 outline-none transition
-                    border-neutral-300 placeholder:text-transparent
-                    focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100`}
-        value={value}
-        onChange={(e) => onChange?.(e.target.value)}
-        placeholder={label}
-        {...rest}
-      />
-      <label
-        className={`pointer-events-none absolute left-3.5 top-2
-                    text-[11px] font-medium transition
-                    ${active ? "text-neutral-600" : "text-neutral-500 peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-[14px]"}`}
-      >
-        {label}
-      </label>
+    <div className={`relative group ${className}`}>
+      <div className="absolute top-3.5 left-4 pointer-events-none z-10">{icon}</div>
+      <input className={`peer w-full rounded-2xl border-2 bg-white ${icon?"pl-11":"pl-4"} pr-4 pt-5 pb-2 text-sm font-medium text-gray-900 outline-none border-gray-100 placeholder:text-transparent focus:border-emerald-500 transition-all`} value={value} onChange={(e)=>onChange?.(e.target.value)} placeholder={label} {...rest} />
+      <label className={`pointer-events-none absolute ${icon?"left-11":"left-4"} top-2 text-[10px] font-bold text-gray-400 uppercase transition-all peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-sm peer-placeholder-shown:text-gray-500 peer-placeholder-shown:font-normal`}>{label}</label>
     </div>
   );
 }
-function TogglePill({ active, onClick, children, disabled }) {
+function TogglePill({ active, onClick, children, disabled, small }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      className={`relative rounded-full px-4 py-1.5 text-sm font-medium transition
-        ${active ? "bg-white shadow-sm text-neutral-900" : "text-neutral-700 hover:bg-white/70"}
-        ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
-    >
-      <span className={`absolute inset-0 -z-10 rounded-full bg-gradient-to-r from-emerald-500/0 to-emerald-500/0 transition-opacity ${active ? "opacity-100" : "opacity-0"}`} />
-      {children}
-    </button>
+    <button type="button" onClick={onClick} disabled={disabled} className={`relative flex-1 rounded-lg font-medium transition-all text-center whitespace-nowrap ${small?"px-2 py-1.5 text-xs":"px-3 py-2.5 text-sm"} ${active?"bg-white text-gray-900 shadow-sm ring-1 ring-black/5 z-10":"text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"} ${disabled?"opacity-50":""}`}><span className="flex items-center justify-center">{children}</span></button>
   );
 }
 function FooterActions({ primaryLabel, primaryDisabled, onCancel }) {
   return (
-    <div className="sticky bottom-0 mt-4 -mx-3 border-t bg-white/95 px-3 py-3 sm:mx-0 sm:px-0">
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm text-neutral-700 shadow-sm hover:bg-neutral-50">
-          Cancelar
-        </button>
-        <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60" disabled={primaryDisabled}>
-          {primaryLabel}
-        </button>
-      </div>
+    <div className="mt-6 flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+      <button type="button" onClick={onCancel} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors">Cancelar</button>
+      <button type="submit" disabled={primaryDisabled} className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-60 transition-all">{primaryLabel}</button>
     </div>
   );
 }
