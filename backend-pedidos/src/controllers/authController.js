@@ -3,8 +3,43 @@ import { pool } from "../config/db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const ADMIN_SECRET  = process.env.SUPABASE_JWT_SECRET || "dev_admin_secret";
-const CLIENT_SECRET = process.env.JWT_CLIENT_SECRET || ADMIN_SECRET;
+const IS_PROD =
+  String(process.env.NODE_ENV || "development").toLowerCase() === "production";
+
+// 🔐 Secretos
+// Admin (legacy auth /admin, NO dbToken: ese se firma en signDbToken.js)
+const ADMIN_SECRET =
+  process.env.SUPABASE_JWT_SECRET ||
+  (!IS_PROD ? "dev_admin_secret" : null);
+
+// Cliente (frontend-cliente)
+const CLIENT_SECRET =
+  process.env.JWT_CLIENT_SECRET ||
+  (!IS_PROD ? "dev_client_secret" : null);
+
+// Servicio (KDS / cocina)
+const SERVICE_SECRET =
+  process.env.JWT_SERVICE_SECRET ||
+  (!IS_PROD ? "dev_service_secret" : null);
+
+// ✅ En producción, obligamos a que existan los secretos reales
+if (IS_PROD) {
+  if (!process.env.SUPABASE_JWT_SECRET) {
+    throw new Error(
+      "SUPABASE_JWT_SECRET requerido en producción (dbToken/admin)"
+    );
+  }
+  if (!process.env.JWT_CLIENT_SECRET) {
+    throw new Error(
+      "JWT_CLIENT_SECRET requerido en producción (tokens de cliente)"
+    );
+  }
+  if (!process.env.JWT_SERVICE_SECRET) {
+    throw new Error(
+      "JWT_SERVICE_SECRET requerido en producción (token de servicio/KDS)"
+    );
+  }
+}
 
 // --- Login ADMIN (email + password con bcrypt / fallback texto) ---
 export const login = async (req, res) => {
@@ -24,7 +59,7 @@ export const login = async (req, res) => {
          email,
          rol,
          password_hash,
-         password               -- 👈 añadimos password en texto
+         password               -- 👈 password en texto (legacy)
        FROM usuarios
        WHERE lower(email) = $1
        LIMIT 1`,
@@ -52,7 +87,7 @@ export const login = async (req, res) => {
     const token = jwt.sign(
       { userId: u.id, restaurantId: u.restaurant_id, rol: u.rol || "admin" },
       ADMIN_SECRET,
-      { expiresIn: "8h" }
+      { expiresIn: "8h" } // ⏱ 8h para este flujo legacy
     );
 
     res.json({
@@ -74,7 +109,11 @@ export const login = async (req, res) => {
 // --- Login CLIENTE (solo restaurantId) ---
 export const loginCliente = (req, res) => {
   const restaurantId = Number(req.body?.restaurantId || 0);
-  if (!restaurantId) return res.status(400).json({ error: "Falta restaurantId" });
+  if (!restaurantId) {
+    return res.status(400).json({ error: "Falta restaurantId" });
+  }
+
+  const expiresSeconds = 2 * 60 * 60; // 2h
 
   const token = jwt.sign(
     {
@@ -83,10 +122,10 @@ export const loginCliente = (req, res) => {
       restaurantId,
     },
     CLIENT_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: expiresSeconds }
   );
 
-  res.json({ token });
+  res.json({ token, expiresIn: expiresSeconds });
 };
 
 // --- POST /api/auth/token-temporal (nuevo) ---
@@ -94,16 +133,20 @@ export const generarTokenTemporal = (req, res) => {
   const { restaurantId, mesaId } = req.body;
 
   if (!restaurantId || !mesaId) {
-    return res.status(400).json({ error: "Faltan restaurantId o mesaId" });
+    return res
+      .status(400)
+      .json({ error: "Faltan restaurantId o mesaId" });
   }
+
+  const expiresSeconds = 60 * 60; // 1h
 
   const token = jwt.sign(
     { restaurantId, mesaId, rol: "client" },
-    process.env.JWT_CLIENT_SECRET || "dev_client_secret",
-    { expiresIn: "1h" }
+    CLIENT_SECRET,
+    { expiresIn: expiresSeconds }
   );
 
-  res.json({ token });
+  res.json({ token, expiresIn: expiresSeconds });
 };
 
 // --- /api/auth/me ---
@@ -115,15 +158,20 @@ export const validateToken = (req, res) => {
   res.json({ valid: true, userId: req.user?.id || null });
 };
 
+// --- Token para servicio KDS / cocina ---
 export const generarTokenServicio = (req, res) => {
   const { restaurantId } = req.body;
-  if (!restaurantId) return res.status(400).json({ error: "Falta restaurantId" });
+  if (!restaurantId) {
+    return res.status(400).json({ error: "Falta restaurantId" });
+  }
+
+  const expiresSeconds = 30 * 24 * 60 * 60; // 30 días
 
   const token = jwt.sign(
     { restaurantId, rol: "kitchen" },
-    process.env.JWT_SERVICE_SECRET || "dev_service_secret",
-    { expiresIn: "365d" }
+    SERVICE_SECRET,
+    { expiresIn: expiresSeconds }
   );
 
-  res.json({ token });
+  res.json({ token, expiresIn: expiresSeconds });
 };

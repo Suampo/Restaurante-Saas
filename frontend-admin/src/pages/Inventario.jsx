@@ -7,8 +7,15 @@ import AlmacenesView from "./inventario/almacenes/AlmacenesView";
 import { cls } from "./inventario/utils";
 
 export default function Inventario() {
-  const [tab, setTab] = useState(() => localStorage.getItem("inv:tab") || "stock");
-  useEffect(() => localStorage.setItem("inv:tab", tab), [tab]);
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return "stock";
+    return localStorage.getItem("inv:tab") || "stock";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("inv:tab", tab);
+  }, [tab]);
 
   const tabs = [
     { key: "stock", label: "Stock" },
@@ -22,22 +29,32 @@ export default function Inventario() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Inventario</h1>
 
-      <nav aria-label="Secciones de inventario" className="flex gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cls(
-              "rounded-lg px-3 py-1.5 text-sm transition",
-              tab === t.key ? "bg-neutral-900 text-white" : "border hover:bg-neutral-50"
-            )}
-            aria-current={tab === t.key ? "page" : undefined}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* NAV RESPONSIVE */}
+      <nav
+        aria-label="Secciones de inventario"
+        className="w-full overflow-x-auto sm:overflow-visible"
+      >
+        <div className="flex gap-2 whitespace-nowrap sm:flex-wrap sm:whitespace-normal">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={cls(
+                "rounded-lg px-3 py-2 text-xs sm:text-sm transition text-center",
+                "border flex-1 sm:flex-none",
+                tab === t.key
+                  ? "bg-neutral-900 text-white border-neutral-900"
+                  : "bg-white hover:bg-neutral-50"
+              )}
+              aria-current={tab === t.key ? "page" : undefined}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
+      {/* CONTENIDO */}
       {tab === "stock" && <StockView />}
       {tab === "insumos" && <InsumosView />}
       {tab === "movimientos" && <MovView />}

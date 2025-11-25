@@ -8,10 +8,13 @@ export const API_BASE =
 
 /* ---------- Helpers de auth ---------- */
 const authHeader = () => {
-  const t = localStorage.getItem("client_token") || localStorage.getItem("token");
-  return t ? { Authorization: `Bearer ${t}`, "x-db-token": t } : {};
-};
+  const t =
+    sessionStorage.getItem("client_token") ||
+    localStorage.getItem("client_token") || // fallback por si quedó algo viejo
+    null;
 
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
 const idem = () =>
   crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
