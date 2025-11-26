@@ -8,7 +8,7 @@ const FACT_BASE =
   "http://localhost:5000";
 
 const SPLIT_BASE = "/api/split";   // rutas de split
-const ADMIN_BASE = "/admin";       // rutas admin
+const ADMIN_BASE = "/api/admin";        // rutas admin
 
 export const FACT_API = axios.create({
   baseURL: FACT_BASE,
