@@ -25,6 +25,7 @@ const parseOffset = (v) => {
   if (Number.isNaN(n) || n < 0) return 0;
   return n;
 };
+
 /* =============== GET /api/pedidos =============== */
 /**
  * Listado para admin / cocina.
@@ -298,18 +299,18 @@ export const crearPedido = async (req, res) => {
     const pedidoId = ped.rows[0].id;
 
     // 5) Si ya tenía detalle, devolvemos total existente (idempotente)
-    const detCount = await client.query(
-      `SELECT COUNT(*)::int AS c FROM public.pedido_detalle WHERE pedido_id = $1`,
+    //    👉 Un solo SELECT con COUNT + SUM
+    const detStats = await client.query(
+      `SELECT 
+         COUNT(*)::int AS c,
+         COALESCE(SUM(cantidad * precio_unitario),0) AS total
+       FROM public.pedido_detalle
+       WHERE pedido_id = $1`,
       [pedidoId]
     );
-    if (detCount.rows[0].c > 0) {
-      const totalQ = await client.query(
-        `SELECT COALESCE(SUM(cantidad * precio_unitario),0) AS total
-           FROM public.pedido_detalle
-          WHERE pedido_id = $1`,
-        [pedidoId]
-      );
-      const totalExistente = Number(totalQ.rows[0].total || 0);
+
+    if (detStats.rows[0].c > 0) {
+      const totalExistente = Number(detStats.rows[0].total || 0);
 
       await client.query(
         `UPDATE public.pedidos
@@ -471,13 +472,15 @@ export const crearPedido = async (req, res) => {
 
     await client.query("COMMIT");
 
-    // 9) Emitir a KDS fuera de la transacción
+    // 9) Emitir a KDS completamente fuera del flujo del request
     if (pedidoKds) {
-      try {
-        emitirPedidoCocina(pedidoKds);
-      } catch (e) {
-        console.warn("[emitirPedidoCocina] warn:", e.message);
-      }
+      setImmediate(() => {
+        try {
+          emitirPedidoCocina(pedidoKds);
+        } catch (e) {
+          console.warn("[emitirPedidoCocina] warn:", e.message);
+        }
+      });
     }
 
     return res.status(201).json({
@@ -495,7 +498,9 @@ export const crearPedido = async (req, res) => {
     }
 
     if (error?.code === "23505") {
-      return res.status(409).json({ error: "Conflicto de unicidad", detail: error.detail });
+      return res
+        .status(409)
+        .json({ error: "Conflicto de unicidad", detail: error.detail });
     }
 
     console.error("❌ crearPedido:", error);
@@ -516,7 +521,9 @@ export const actualizarPedidoEstado = async (req, res) => {
     const { estado } = req.body;
 
     if (!pedidoId)
-      return res.status(400).json({ error: "Falta el ID del pedido en la URL" });
+      return res
+        .status(400)
+        .json({ error: "Falta el ID del pedido en la URL" });
 
     const allowed = ["pendiente_pago", "pagado", "anulado"];
     if (!estado || !allowed.includes(estado)) {
@@ -537,7 +544,9 @@ export const actualizarPedidoEstado = async (req, res) => {
 
     if (estado === "anulado" && pedido.estado !== "pendiente_pago") {
       await client.query("ROLLBACK");
-      return res.status(409).json({ error: "El pedido ya no está pendiente de pago" });
+      return res
+        .status(409)
+        .json({ error: "El pedido ya no está pendiente de pago" });
     }
 
     const q1 = await client.query(
@@ -576,7 +585,9 @@ export const actualizarPedidoEstado = async (req, res) => {
       code: e.code,
       stack: e.stack,
     });
-    return res.status(500).json({ error: "No se pudo actualizar el estado del pedido" });
+    return res
+      .status(500)
+      .json({ error: "No se pudo actualizar el estado del pedido" });
   } finally {
     if (client) client.release();
   }
@@ -620,7 +631,9 @@ export const obtenerPedidosRecientes = async (req, res) => {
     });
   } catch (e) {
     console.error("obtenerPedidosRecientes:", e);
-    return res.status(500).json({ error: "No se pudo obtener pedidos recientes" });
+    return res
+      .status(500)
+      .json({ error: "No se pudo obtener pedidos recientes" });
   }
 };
 
@@ -662,6 +675,8 @@ export const ventasPorDia = async (req, res) => {
     });
   } catch (e) {
     console.error("ventasPorDia:", e);
-    return res.status(500).json({ error: "No se pudo calcular ventas por día" });
+    return res
+      .status(500)
+      .json({ error: "No se pudo calcular ventas por día" });
   }
 };
