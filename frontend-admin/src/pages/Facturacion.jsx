@@ -60,7 +60,8 @@ const estadoBadgeClass = (estado = "") => {
 /** Construye la URL del endpoint PDF en backend-facturación */
 const buildPdfUrl = (row) => {
   if (!row?.id) return null;
-  return `${FACT_API_BASE}/admin/cpe/${row.id}/pdf`;
+  // Ahora apunta a /api/admin/cpe/:id/pdf
+  return `${FACT_API_BASE}/api/admin/cpe/${row.id}/pdf`;
 };
 
 /** Pide el PDF con Axios (lleva Authorization) y devuelve un Blob */
@@ -139,9 +140,9 @@ export default function Facturacion() {
       };
 
       // Va directo a backend-facturación (:5000)
-      const res = await API.get(`${FACT_API_BASE}/admin/cpe-documents`, {
-        params,
-      });
+    const res = await API.get(`${FACT_API_BASE}/api/admin/cpe-documents`, {
+  params,
+});
 
       setItems(res.data.items || []);
       setSummary(res.data.summary || {});
