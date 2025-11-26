@@ -207,8 +207,8 @@ app.use("/", mozoAuthRoutes);
 app.use("/api", pedidos);
 
 // Rutas de administración (caja, facturación, etc.)
-app.use("/admin", adminCashRoutes);
-app.use("/admin", adminFacturacionRoutes);
+app.use("/api/admin", adminCashRoutes);
+app.use("/api/admin", adminFacturacionRoutes)
 
 // Split (efectivo, saldos, etc.) — protegido con CSRF + rol
 app.use("/api/split", requireCsrf, requireWaiter, splitRoutes);
