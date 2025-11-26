@@ -54,6 +54,22 @@ import { initSocket } from "./services/realtimeService.js";
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
 
+/* ===== Config para rate-limit y pruebas de carga (k6) ===== */
+/**
+ * isProdLimits: sigue siendo true solo si estás en producción.
+ * shouldBypassLimiter: solo se activa cuando:
+ *   - ALLOW_LOADTEST_BYPASS=1 en el .env del servidor
+ *   - la petición viene con header: x-load-test: k6
+ *
+ * Resultado:
+ *   - Clientes normales → siguen bajo rate-limit normal.
+ *   - k6 con ese header → se salta el rate-limit para poder probar carga.
+ */
+const isProdLimits = isProd;
+const shouldBypassLimiter = (req) =>
+  process.env.ALLOW_LOADTEST_BYPASS === "1" &&
+  req.headers["x-load-test"] === "k6";
+
 /* ===== Infra ===== */
 app.set("trust proxy", 1);
 app.set("etag", false);
@@ -183,22 +199,24 @@ app.use((req, res, next) => {
 });
 
 /* ===== Rate limits ===== */
-const isProdLimits = isProd;
 const baseLimiter = rateLimit({
   windowMs: 60_000,
   max: isProdLimits ? 300 : 10_000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldBypassLimiter, // 👈 k6 puede saltarse el límite
   handler(req, res) {
     console.warn("[RateLimit]", req.method, req.originalUrl, "ip:", req.ip);
     res.status(429).json({ error: "Too Many Requests" });
   },
 });
+
 const authLimiter = rateLimit({
   windowMs: 60_000,
   max: isProdLimits ? 30 : 2_000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldBypassLimiter, // 👈 también para /api/auth
   handler(req, res) {
     console.warn(
       "[RateLimit AUTH]",
@@ -210,9 +228,11 @@ const authLimiter = rateLimit({
     res.status(429).json({ error: "Too Many Requests" });
   },
 });
+
 const webhookLimiter = rateLimit({
   windowMs: 60_000,
   max: isProdLimits ? 60 : 5_000,
+  skip: shouldBypassLimiter, // opcional, por coherencia
 });
 
 // Rate-limit específico para crear pedido (público)
@@ -221,6 +241,7 @@ const createPedidoLimiter = rateLimit({
   max: isProdLimits ? 60 : 5000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldBypassLimiter, // 👈 importantísimo para k6
 });
 
 if (isProdLimits) {
@@ -287,6 +308,7 @@ app.use("/admin", requireDbToken, adminCashRoutes);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use("/menu_images", express.static(path.join(__dirname, "menu_images")));
+
 /* ===== 404 + errores ===== */
 app.use((req, res) => res.status(404).json({ error: "No encontrado" }));
 
