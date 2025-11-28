@@ -503,7 +503,7 @@ function YapeForm({ amountSoles, intentId, restaurantId, pedidoId, buyerEmail, o
       {belowMin && <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded">Mínimo S/ {MIN.toFixed(2)}</div>}
       <div className="space-y-3">
         <FloatingInput label="Celular" value={phone} onChange={(v)=>setPhone(String(v).replace(/\D+/g,""))} placeholder="9xxxxxxxx" inputMode="numeric" required icon={<span className="text-gray-400 text-lg">📱</span>} />
-        <FloatingInput label="Código OTP" value={otp} onChange={(v)=>setOtp(String(v).replace(/\D+/g,"").slice(0,6))} placeholder="6 dígitos" inputMode="numeric" required icon={<span className="text-gray-400 text-lg">🔒</span>} />
+        <FloatingInput label="Código de aprobación Yape" value={otp} onChange={(v)=>setOtp(String(v).replace(/\D+/g,"").slice(0,6))} placeholder="6 dígitos" inputMode="numeric" required icon={<span className="text-gray-400 text-lg">🔒</span>} />
       </div>
       <button type="submit" disabled={loading||belowMin} className="w-full rounded-xl bg-[#742384] py-3.5 text-sm font-bold text-white shadow-lg hover:bg-[#5e1c6b] disabled:opacity-60 transition-all">{loading?"Procesando...":`Yapear S/ ${amt.toFixed(2)}`}</button>
     </form>

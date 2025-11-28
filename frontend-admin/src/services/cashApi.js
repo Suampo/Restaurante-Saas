@@ -2,13 +2,19 @@
 import axios from "axios";
 
 // ---- BASES ----
-const FACT_BASE =
-  import.meta.env.VITE_FACT_API_URL ||
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:5000";
+// Prioridad:
+// 1) VITE_FACT_API_URL (ideal)
+// 2) En dev, localhost:5000
+// 3) En prod, dominio fijo api-facturacion.mikhunappfood.com
+const FACT_BASE = import.meta.env.VITE_FACT_API_URL
+  ? import.meta.env.VITE_FACT_API_URL.replace(/\/$/, "")
+  : (import.meta.env.DEV
+      ? "http://localhost:5000"
+      : "https://api-facturacion.mikhunappfood.com"
+    );
 
 const SPLIT_BASE = "/api/split";   // rutas de split
-const ADMIN_BASE = "/api/admin";        // rutas admin
+const ADMIN_BASE = "/api/admin";   // rutas admin
 
 export const FACT_API = axios.create({
   baseURL: FACT_BASE,

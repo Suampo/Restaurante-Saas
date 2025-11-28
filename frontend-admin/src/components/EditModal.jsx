@@ -1,78 +1,99 @@
 // src/components/EditModal.jsx
-import { useState, useEffect } from "react";
-
-const IconClose = ({ className = "h-6 w-6" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
+import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 
 export default function EditModal({
   isOpen,
   onClose,
   onSave,
-  position, // <-- Aceptamos la nueva prop de posición
   title,
   label,
-  initialValue = "",
+  initialValue,
   inputType = "text",
   placeholder = "",
+  // seguimos aceptando `position` para compatibilidad,
+  // pero no lo usamos (centramos el modal).
+  position,
 }) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState(initialValue ?? "");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (isOpen) setValue(initialValue);
+    if (isOpen) {
+      setValue(initialValue ?? "");
+      setSaving(false);
+    }
   }, [initialValue, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSave = () => { onSave(value); onClose(); };
-  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSave(); };
-
-  // Estilos para posicionar el popover. Si no hay posición, se centra como respaldo.
-  const popoverStyles = position 
-    ? { top: `${position.top}px`, left: `${position.left}px`, transform: 'translateX(-50%)' } // Centrado horizontalmente al botón
-    : { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!onSave) {
+      onClose?.();
+      return;
+    }
+    try {
+      setSaving(true);
+      await onSave(value);
+      // si todo sale bien, cerramos
+      onClose?.();
+    } catch (err) {
+      console.error(err);
+      // si hay error, el padre ya muestra alert, dejamos el modal abierto
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    // Capa transparente para detectar clics afuera y cerrar
-    <div className="fixed inset-0 z-40" onClick={onClose}>
-      
-      {/* Contenedor del Popover con posicionamiento absoluto */}
-      <div
-        style={popoverStyles}
-        className="absolute z-50 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-black/5"
-        onClick={(e) => e.stopPropagation()} // Evita que se cierre al hacer clic adentro
-      >
-        <div className="flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-3 py-6">
+      <div className="w-full max-w-sm max-h-full overflow-y-auto rounded-2xl bg-white shadow-xl ring-1 ring-black/5">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-100" aria-label="Cerrar">
-            <IconClose className="h-5 w-5" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-gray-500 hover:bg-gray-100"
+          >
+            <X size={16} />
           </button>
-        </div>
-        
-        <div className="mt-4 flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-gray-700">{label}</label>
-          <input
-            type={inputType}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="w-full rounded-lg border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
-            placeholder={placeholder}
-            autoFocus
-            step={inputType === 'number' ? '0.01' : undefined}
-          />
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-200">
-            Cancelar
-          </button>
-          <button type="button" onClick={handleSave} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500">
-            Guardar
-          </button>
-        </div>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4 px-4 py-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-gray-700">
+              {label}
+            </label>
+            <input
+              type={inputType}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={placeholder}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-emerald-400"
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

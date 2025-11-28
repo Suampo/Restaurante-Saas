@@ -16,8 +16,7 @@ const ADMIN_SECRET =
   process.env.JWT_SECRET ||
   "dev_admin_secret";
 
-const CLIENT_SECRET =
-  process.env.JWT_CLIENT_SECRET || ADMIN_SECRET;
+const CLIENT_SECRET = process.env.JWT_CLIENT_SECRET || ADMIN_SECRET;
 
 let io;
 const roomId = (restaurantId) => `rest-${Number(restaurantId)}`;
@@ -130,6 +129,7 @@ export const initSocket = async (server) => {
                p.estado,
                p.total AS monto,
                p.created_at,
+               p.note AS note,                         -- 👈 nota para cocina
                COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
                COALESCE(
                  (SELECT jsonb_agg(
@@ -219,6 +219,7 @@ const buildPedidoKds = async (restaurantId, pedidoId) => {
        p.estado,
        p.total AS monto,
        p.created_at,
+       p.note AS note,                          -- 👈 nota también aquí
        COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
        COALESCE(
          (SELECT jsonb_agg(

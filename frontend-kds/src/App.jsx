@@ -289,11 +289,14 @@ function KdsLoginScreen({ onLogin, error, estado }) {
     </div>
   );
 }
-
 function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
   const estadoLower = String(pedido.estado || "").toLowerCase();
   const metodoPago = getMetodoPago(pedido);
   const metodoLower = String(metodoPago || "").toLowerCase();
+
+  // 👇 nota consolidada que viene del backend
+  const note =
+    (pedido.note || pedido.nota || pedido.order_note || "").toString().trim();
 
   const isPagado = estadoLower === "pagado";
   const esPendiente =
@@ -319,7 +322,9 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
 
   const hora = formatHoraPedido(pedido.created_at);
   const cocinaLabel =
-    kitchenState === "entregado" ? "Cocina: Entregado" : "Cocina: En preparación";
+    kitchenState === "entregado"
+      ? "Cocina: Entregado"
+      : "Cocina: En preparación";
 
   return (
     <div
@@ -406,6 +411,34 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
         ))}
       </div>
 
+      {/* Nota para cocina */}
+      {note && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: "#FFFBEB",
+            border: "1px dashed #FBBF24",
+            fontSize: 13,
+            color: "#92400E",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              marginBottom: 4,
+            }}
+          >
+            Nota para cocina
+          </div>
+          <div>{note}</div>
+        </div>
+      )}
+
       {/* Footer */}
       <div
         style={{
@@ -460,6 +493,7 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
     </div>
   );
 }
+
 
 function KdsDisplayScreen({
   user,

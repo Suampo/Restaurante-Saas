@@ -310,13 +310,19 @@ function AppInner() {
           }
         }
 
-        // (2) Nota
-        const noteFromSheet =
-          typeof window !== "undefined" ? window.__CHECKOUT_NOTE__ || "" : "";
-        const noteToUse = String(
-          (checkoutNote || noteFromSheet || "")
-        ).trim() || null;
+       // (2) Nota
+const rawFromSheet =
+  typeof window !== "undefined" ? window.__CHECKOUT_NOTE__ || "" : "";
+const rawFromModal = checkoutNote || "";
 
+// Unimos ambas notas si existen
+const pieces = [];
+if (rawFromSheet.trim()) pieces.push(rawFromSheet.trim());
+if (rawFromModal.trim()) pieces.push(rawFromModal.trim());
+
+// Ejemplo si hay ambas:
+// "Sin cebolla en la ensalada. | Poco picante en general."
+const noteToUse = pieces.length ? pieces.join(" | ") : null;
         // (3) Tipo de CPE (solo si va por SUNAT)
         const comprobanteTipo = isSunatOrder
           ? billing?.docType === "RUC"
