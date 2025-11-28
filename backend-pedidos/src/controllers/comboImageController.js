@@ -17,6 +17,8 @@ const ALLOWED = new Set([
   "image/gif",
 ]);
 
+const MAX_SIZE = 1600;
+
 export const uploadComboCover = async (req, res) => {
   try {
     const restaurantId = req.user.restaurantId; // de authTenant
@@ -45,9 +47,15 @@ export const uploadComboCover = async (req, res) => {
       return res.status(404).json({ error: "Combo no encontrado" });
     }
 
-    // 🔁 Convertir SIEMPRE a WebP
+    // 🔁 Convertir SIEMPRE a WebP, limitado a MAX_SIZE
     const webpBuffer = await sharp(req.file.buffer)
       .rotate()
+      .resize({
+        width: MAX_SIZE,
+        height: MAX_SIZE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .webp({ quality: 80 })
       .toBuffer();
 

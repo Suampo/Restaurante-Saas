@@ -3,7 +3,7 @@ import React, { useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import ProductSheet from "./ProductSheet";
 
-/* --- ICONOS (Ajustados ligeramente) --- */
+/* --- ICONOS --- */
 const IconPlus = (p) => (
   <svg
     viewBox="0 0 24 24"
@@ -34,47 +34,65 @@ const IconImageOff = (p) => (
   </svg>
 );
 
-export default function ProductCard({
-  item,
-  absolute,
-  fallbackImg,
-  formatPEN,
-  onAdd,
-}) {
-  const imgUrl = useMemo(
-    () => absolute?.(item?.imagen_url) || fallbackImg,
-    [absolute, item?.imagen_url, fallbackImg]
-  );
+function ProductCard({ item, absolute, fallbackImg, formatPEN, onAdd }) {
+  // ---------- IMAGEN ----------
+  const imgUrl = useMemo(() => {
+    if (!item) return fallbackImg;
 
-  const priceLabel = formatPEN
-    ? formatPEN(item?.precio || 0)
-    : `S/ ${Number(item?.precio || 0).toFixed(2)}`;
+    const raw =
+      item.imagen_url ??
+      item.cover_url ??
+      item.image_url ??
+      item.foto_url ??
+      item.imagen ??
+      "";
+
+    if (!raw) return fallbackImg;
+    return absolute ? absolute(raw) : raw;
+  }, [item, absolute, fallbackImg]);
 
   const [imgError, setImgError] = useState(false);
+
+  // ---------- PRECIO ----------
+  const rawPrice =
+    item?.precio_oferta ??
+    item?.precio ??
+    item?.price ??
+    item?.precio_unitario ??
+    0;
+
+  const priceLabel = formatPEN
+    ? formatPEN(rawPrice)
+    : `S/ ${Number(rawPrice || 0).toFixed(2)}`;
+
+  // ---------- SHEET & ANIMACIÓN BOTÓN ----------
   const [open, setOpen] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
 
   const openSheet = useCallback(() => setOpen(true), []);
   const closeSheet = useCallback(() => setOpen(false), []);
 
-  /* --- CORRECCIÓN AQUÍ --- */
-  const handleQuickAdd = (e) => {
-    e.stopPropagation();
-    setIsPressed(true);
-    setTimeout(() => setIsPressed(false), 200);
+  // QUICK ADD optimizado
+  const handleQuickAdd = useCallback(
+    (e) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    const payload = { ...item };
+      setIsPressed(true);
+      setTimeout(() => setIsPressed(false), 200);
 
-    // Si el componente padre me pasó una función onAdd, uso ESA y nada más.
-    if (onAdd) {
-      onAdd(payload);
-    } else {
-      // Si NO me pasó nada, entonces yo lanzo el evento manualmente.
-      window.dispatchEvent(
-        new CustomEvent("cart:add", { detail: { item: payload } })
-      );
-    }
-  };
+      const payload = { ...item };
+
+      if (onAdd) {
+        onAdd(payload);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("cart:add", { detail: { item: payload } })
+        );
+      }
+    },
+    [item, onAdd]
+  );
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -82,6 +100,8 @@ export default function ProductCard({
       openSheet();
     }
   };
+
+  const name = item?.nombre || "Producto";
 
   return (
     <>
@@ -94,14 +114,17 @@ export default function ProductCard({
         onClick={openSheet}
         tabIndex={0}
         onKeyDown={handleKeyDown}
+        role="button"
+        aria-label={`Ver detalles de ${name}`}
       >
         {/* Imagen 4:3 */}
         <div className="relative aspect-[4/3] w-full overflow-hidden bg-gray-100">
           {!imgError && imgUrl ? (
             <img
               src={imgUrl}
-              alt={item?.nombre}
+              alt={name}
               loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition-transform duration-700 will-change-transform group-hover:scale-110"
               onError={() => setImgError(true)}
             />
@@ -123,19 +146,28 @@ export default function ProductCard({
 
           {/* Contenido Inferior */}
           <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-2 sm:p-3">
-            
             {/* Texto */}
             <div className="flex-1 min-w-0 pr-1.5 pb-0.5">
-              <h3 
+              <h3
                 className="line-clamp-2 text-xs font-bold leading-tight text-white drop-shadow-md sm:text-sm sm:leading-snug"
-                title={item?.nombre}
+                title={name}
               >
-                {item?.nombre || "Producto"}
+                {name}
               </h3>
               <p className="mt-0.5 text-[10px] font-medium text-gray-300 flex items-center gap-0.5 sm:text-xs">
                 <span>Ver detalles</span>
-                <svg className="w-2.5 h-2.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                <svg
+                  className="w-2.5 h-2.5 opacity-70"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
                 </svg>
               </p>
             </div>
@@ -158,6 +190,7 @@ export default function ProductCard({
                     : "hover:scale-110 hover:bg-emerald-400"
                 }
               `}
+              aria-label={`Agregar ${name} al carrito`}
             >
               <IconPlus className="h-4 w-4 drop-shadow-sm" />
             </button>
@@ -174,3 +207,6 @@ export default function ProductCard({
     </>
   );
 }
+
+// Muy importante: esto evita re-renders masivos al scrollear
+export default React.memo(ProductCard);

@@ -1,5 +1,10 @@
 // src/components/CategoriesManager.jsx
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   getCategories,
   createCategory,
@@ -10,12 +15,17 @@ import {
 import EditModal from "./EditModal";
 import ConfirmationModal from "./ConfirmationModal";
 import RecommendedCategoriesHint from "./menu/RecommendedCategoriesHint";
+import { proxyImg } from "../utils/imageProxy";
 
-// --- Iconos para usar en el componente ---
+// Iconos
 const Icon = ({ name, className = "h-5 w-5" }) => {
   const icons = {
     add: (
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 4.5v15m7.5-7.5h-15"
+      />
     ),
     image: (
       <path
@@ -60,26 +70,30 @@ export default function CategoriesManager({ onChange }) {
   const [busyId, setBusyId] = useState(null);
   const [imgVer, setImgVer] = useState({});
 
-  // 👇 NUEVO: paginación local para categorías
+  // paginación local
   const [catPage, setCatPage] = useState(1);
-  const [catPerPage, setCatPerPage] = useState(4); // 4 por página por defecto
+  const [catPerPage, setCatPerPage] = useState(4);
 
-  // --- Estado unificado para todos los modales ---
   const [modalState, setModalState] = useState({
-    type: null, // 'rename', 'delete', 'conflict'
+    type: null,
     data: null,
   });
 
-  // ===== notificación a padre =====
   const shallowEqualCats = (a = [], b = []) => {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
       const x = a[i],
         y = b[i];
-      if (x?.id !== y?.id || x?.nombre !== y?.nombre || x?.cover_url !== y?.cover_url) return false;
+      if (
+        x?.id !== y?.id ||
+        x?.nombre !== y?.nombre ||
+        x?.cover_url !== y?.cover_url
+      )
+        return false;
     }
     return true;
   };
+
   const notifyChange = useRef(null);
   if (!notifyChange.current) {
     notifyChange.current = (list) => {
@@ -90,7 +104,6 @@ export default function CategoriesManager({ onChange }) {
     };
   }
 
-  // ===== fetch inicial y refresh =====
   const fetchInitial = useCallback(async () => {
     try {
       const c = await getCategories();
@@ -120,24 +133,31 @@ export default function CategoriesManager({ onChange }) {
     fetchInitial();
   }, [fetchInitial]);
 
-  // 👇 cuando cambie el número de categorías o el tamaño de página,
-  //    nos aseguramos de que la página actual sea válida
   useEffect(() => {
     setCatPage((p) => {
-      const totalPages = Math.max(1, Math.ceil(cats.length / catPerPage));
+      const totalPages = Math.max(
+        1,
+        Math.ceil(cats.length / catPerPage)
+      );
       return Math.min(Math.max(1, p || 1), totalPages);
     });
   }, [cats.length, catPerPage]);
 
-  // helpers mutación local
   const patchCat = (id, patch) =>
     setCats((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...(typeof patch === "function" ? patch(c) : patch) } : c))
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              ...(typeof patch === "function" ? patch(c) : patch),
+            }
+          : c
+      )
     );
-  const removeLocal = (id) => setCats((prev) => prev.filter((c) => c.id !== id));
+  const removeLocal = (id) =>
+    setCats((prev) => prev.filter((c) => c.id !== id));
   const addLocal = (cat) => setCats((prev) => [cat, ...prev]);
 
-  // ===== crear desde el formulario =====
   const add = async (e) => {
     e.preventDefault();
     const n = nombre.trim();
@@ -147,39 +167,55 @@ export default function CategoriesManager({ onChange }) {
     addLocal({ id: tempId, nombre: n, cover_url: "" });
     try {
       const created = await createCategory(n);
-      if (created?.id) setCats((prev) => prev.map((c) => (c.id === tempId ? created : c)));
+      if (created?.id) {
+        setCats((prev) =>
+          prev.map((c) => (c.id === tempId ? created : c))
+        );
+      }
       setNombre("");
       refreshQuiet();
     } catch (e2) {
       removeLocal(tempId);
-      alert(e2?.response?.data?.error || "No se pudo crear la categoría");
+      alert(
+        e2?.response?.data?.error ||
+          "No se pudo crear la categoría"
+      );
     } finally {
       setBusyId(null);
     }
   };
 
-  // ===== crear sugerida desde el banner =====
   const createSuggested = async (name) => {
     const n = String(name || "").trim();
     if (!n) return;
-    const exists = cats.some((c) => String(c?.nombre || "").toLowerCase().includes(n.toLowerCase()));
-    if (exists) return; // ya existe algo equivalente
+    const exists = cats.some((c) =>
+      String(c?.nombre || "")
+        .toLowerCase()
+        .includes(n.toLowerCase())
+    );
+    if (exists) return;
     const tempId = `tmp-${Date.now()}`;
     setBusyId(`suggest:${n}`);
     addLocal({ id: tempId, nombre: n, cover_url: "" });
     try {
       const created = await createCategory(n);
-      if (created?.id) setCats((prev) => prev.map((c) => (c.id === tempId ? created : c)));
+      if (created?.id) {
+        setCats((prev) =>
+          prev.map((c) => (c.id === tempId ? created : c))
+        );
+      }
       refreshQuiet();
     } catch (e) {
       removeLocal(tempId);
-      alert(e?.response?.data?.error || "No se pudo crear la categoría sugerida");
+      alert(
+        e?.response?.data?.error ||
+          "No se pudo crear la categoría sugerida"
+      );
     } finally {
       setBusyId(null);
     }
   };
 
-  // ===== acciones =====
   const handleRename = async (newName) => {
     const cat = modalState.data;
     if (!cat || !newName?.trim()) return;
@@ -192,7 +228,9 @@ export default function CategoriesManager({ onChange }) {
       refreshQuiet();
     } catch (e2) {
       patchCat(cat.id, { nombre: oldName });
-      alert(e2?.response?.data?.error || "No se pudo renombrar");
+      alert(
+        e2?.response?.data?.error || "No se pudo renombrar"
+      );
     } finally {
       setBusyId(null);
     }
@@ -217,11 +255,16 @@ export default function CategoriesManager({ onChange }) {
             catId: cat.id,
             catName: cat.nombre,
             inCombos: Number(d.inCombos ?? 0),
-            inMenuItems: Number((d.inMenuItems ?? d.inPlatos) || 0),
+            inMenuItems: Number(
+              (d.inMenuItems ?? d.inPlatos) || 0
+            ),
           },
         });
       } else {
-        alert(e2?.response?.data?.error || "No se pudo eliminar");
+        alert(
+          e2?.response?.data?.error ||
+            "No se pudo eliminar"
+        );
       }
     } finally {
       setBusyId(null);
@@ -236,7 +279,10 @@ export default function CategoriesManager({ onChange }) {
       refreshQuiet();
       alert("Categoría eliminada con éxito.");
     } catch (e) {
-      alert(e?.response?.data?.error || "No se pudo forzar la eliminación");
+      alert(
+        e?.response?.data?.error ||
+          "No se pudo forzar la eliminación"
+      );
     }
   };
 
@@ -249,45 +295,61 @@ export default function CategoriesManager({ onChange }) {
     patchCat(id, (c) => {
       const base = c.cover_url || "";
       return base
-        ? { cover_url: `${base}${base.includes("?") ? "&" : "?"}_ts=${stamp}` }
+        ? {
+            cover_url: `${base}${
+              base.includes("?") ? "&" : "?"
+            }_ts=${stamp}`,
+          }
         : {};
     });
     try {
       const updated = await uploadCategoryCover(id, file);
-      if (updated?.cover_url) patchCat(id, { cover_url: updated.cover_url });
+      if (updated?.cover_url)
+        patchCat(id, { cover_url: updated.cover_url });
       else setImgVer((v) => ({ ...v, [id]: Date.now() }));
       refreshQuiet();
     } catch (e2) {
-      alert(e2?.response?.data?.error || "No se pudo subir la imagen");
+      alert(
+        e2?.response?.data?.error ||
+          "No se pudo subir la imagen"
+      );
     } finally {
       setBusyId(null);
     }
   };
 
-  // 👇 categorías visibles en esta página
   const totalCats = cats.length;
-  const totalCatPages = Math.max(1, Math.ceil(totalCats / catPerPage));
+  const totalCatPages = Math.max(
+    1,
+    Math.ceil(totalCats / catPerPage)
+  );
   const start = (catPage - 1) * catPerPage;
   const visibleCats = cats.slice(start, start + catPerPage);
 
   const goCatPrev = () => setCatPage((p) => Math.max(1, p - 1));
-  const goCatNext = () => setCatPage((p) => Math.min(totalCatPages, p + 1));
+  const goCatNext = () =>
+    setCatPage((p) => Math.min(totalCatPages, p + 1));
 
   return (
     <>
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6">
-        <h3 className="text-lg font-bold text-gray-900">Categorías</h3>
+        <h3 className="text-lg font-bold text-gray-900">
+          Categorías
+        </h3>
         <p className="mt-1 mb-4 text-sm text-gray-600">
-          Organiza tus platos en grupos para una mejor navegación en el menú.
+          Organiza tus platos en grupos para una mejor navegación en
+          el menú.
         </p>
 
-        {/* 👇 Barra pequeña con total + paginación */}
+        {/* Barra de total + paginación */}
         <div className="mb-4 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
           <span className="text-gray-600">
             <strong>{totalCats}</strong> categorías
           </span>
           <div className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-            <span className="hidden sm:inline text-gray-600">Mostrar</span>
+            <span className="hidden sm:inline text-gray-600">
+              Mostrar
+            </span>
             <select
               value={catPerPage}
               onChange={(e) => {
@@ -322,7 +384,7 @@ export default function CategoriesManager({ onChange }) {
           </div>
         </div>
 
-        {/* --- Formulario de creación --- */}
+        {/* Formulario creación */}
         <form onSubmit={add} className="mb-4 flex gap-3">
           <input
             className="w-full rounded-lg border-gray-300 px-4 py-2 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -337,35 +399,50 @@ export default function CategoriesManager({ onChange }) {
             disabled={!nombre.trim() || busyId === "new"}
           >
             <Icon name="add" className="h-4 w-4" />
-            <span>{busyId === "new" ? "Agregando…" : "Agregar"}</span>
+            <span>
+              {busyId === "new" ? "Agregando…" : "Agregar"}
+            </span>
           </button>
         </form>
 
-        {/* --- Aviso de categorías recomendadas --- */}
+        {/* Sugerencias */}
         <RecommendedCategoriesHint
           categories={cats}
           onCreateCategory={createSuggested}
         />
 
-        {/* --- Lista de categorías --- */}
+        {/* Lista categorías */}
         <div className="mt-4 space-y-3">
           {loadingInitial ? (
             Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-[72px] animate-pulse rounded-xl bg-gray-100" />
+              <div
+                key={i}
+                className="h-[72px] animate-pulse rounded-xl bg-gray-100"
+              />
             ))
           ) : cats.length === 0 ? (
             <div className="text-center rounded-lg border-2 border-dashed border-gray-300 p-8">
-              <p className="text-sm text-gray-500">Aún no has creado ninguna categoría.</p>
+              <p className="text-sm text-gray-500">
+                Aún no has creado ninguna categoría.
+              </p>
             </div>
           ) : (
             visibleCats.map((c) => {
               const hasCover =
-                typeof c.cover_url === "string" && c.cover_url.trim() !== "";
+                typeof c.cover_url === "string" &&
+                c.cover_url.trim() !== "";
               const pending = busyId === c.id;
               const ver = imgVer[c.id];
-              const src = hasCover
+              const rawUrl = hasCover
                 ? c.cover_url +
-                  (ver ? (c.cover_url.includes("?") ? "&" : "?") + "v=" + ver : "")
+                  (ver
+                    ? (c.cover_url.includes("?") ? "&" : "?") +
+                      "v=" +
+                      ver
+                    : "")
+                : null;
+              const src = rawUrl
+                ? proxyImg(rawUrl, 160, 160)
                 : null;
               const inputId = `cat-file-${c.id}`;
 
@@ -377,7 +454,11 @@ export default function CategoriesManager({ onChange }) {
                   <div className="flex min-w-0 flex-1 items-center gap-4">
                     <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-gray-100 ring-1 ring-black/5">
                       {hasCover ? (
-                        <img src={src} alt={c.nombre} className="h-full w-full object-cover" />
+                        <img
+                          src={src}
+                          alt={c.nombre}
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-gray-400">
                           <Icon name="image" className="h-6 w-6" />
@@ -412,7 +493,12 @@ export default function CategoriesManager({ onChange }) {
                     </label>
                     <button
                       type="button"
-                      onClick={() => setModalState({ type: "rename", data: c })}
+                      onClick={() =>
+                        setModalState({
+                          type: "rename",
+                          data: c,
+                        })
+                      }
                       className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-200"
                       disabled={pending}
                       title="Renombrar"
@@ -421,7 +507,12 @@ export default function CategoriesManager({ onChange }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setModalState({ type: "delete", data: c })}
+                      onClick={() =>
+                        setModalState({
+                          type: "delete",
+                          data: c,
+                        })
+                      }
                       className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-100"
                       disabled={pending}
                       title="Eliminar"
@@ -436,7 +527,7 @@ export default function CategoriesManager({ onChange }) {
         </div>
       </div>
 
-      {/* --- Modales --- */}
+      {/* Modales */}
       <EditModal
         isOpen={modalState.type === "rename"}
         onClose={() => setModalState({ type: null, data: null })}
@@ -456,7 +547,8 @@ export default function CategoriesManager({ onChange }) {
       >
         <p>
           ¿Estás seguro de que quieres eliminar la categoría{" "}
-          <strong>"{modalState.data?.nombre}"</strong>? Esta acción no se puede deshacer.
+          <strong>"{modalState.data?.nombre}"</strong>? Esta
+          acción no se puede deshacer.
         </p>
       </ConfirmationModal>
 
@@ -469,20 +561,22 @@ export default function CategoriesManager({ onChange }) {
         confirmColor="red"
       >
         <p className="mb-3">
-          <b>{modalState.data?.catName}</b> no se puede eliminar porque está asignada a platos o
-          combos.
+          <b>{modalState.data?.catName}</b> no se puede eliminar
+          porque está asignada a platos o combos.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-gray-600">
           <li>
-            Está en <b>{modalState.data?.inCombos}</b> grupo(s) de combos.
+            Está en <b>{modalState.data?.inCombos}</b> grupo(s) de
+            combos.
           </li>
           <li>
-            La usan <b>{modalState.data?.inMenuItems}</b> plato(s) del menú.
+            La usan <b>{modalState.data?.inMenuItems}</b> plato(s) del
+            menú.
           </li>
         </ul>
         <p className="mt-3 text-xs text-gray-500">
-          Si continúas, los platos quedarán sin categoría y los grupos de combos afectados se
-          eliminarán.
+          Si continúas, los platos quedarán sin categoría y los
+          grupos de combos afectados se eliminarán.
         </p>
       </ConfirmationModal>
     </>

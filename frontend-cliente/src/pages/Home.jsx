@@ -435,51 +435,51 @@ export default function Home() {
   return (
     <div
       className="
-        mx-auto w-full max-w-6xl px-4 pt-6
+        flex min-h-screen w-full flex-col
         bg-appbg bg-gradient-to-b from-[#fdf5ec] via-[#fdfdfd] to-[#f3f4f6]
         text-neutral-900
       "
-      /* Menos espacio entre contenido y carrito */
-      style={{
-        paddingBottom: "calc(var(--cart-bar-h, 0px) - 40  px)",
-      }}
+      // deja espacio si está activo el CartBar global
+      style={{ paddingBottom: "var(--cart-bar-h, 0px)" }}
     >
-      <RestaurantHeader
-        name={restaurantName}
-        mesaText={mesaText}
-        loading={loading}
-        coverUrl={restaurantCoverUrl}
-      />
-
-      <SearchBar value={q} onChange={setQ} />
-
-      {(filteredCombos.length > 0 || q.trim().length === 0) && (
-        <section aria-labelledby="combos-heading" className="mt-4">
-          <SectionTitle id="combos-heading">COMBOS</SectionTitle>
-          <ComboCarousel combos={filteredCombos} onOpenCombo={openCombo} />
-          <ComboGrid combos={filteredCombos} onOpenCombo={openCombo} />
-          <Divider />
-        </section>
-      )}
-
-      <section aria-labelledby="categories-heading">
-        <SectionTitle id="categories-heading">
-          EMPIEZA TU PEDIDO AQUÍ
-        </SectionTitle>
-        <CategoryGrid
-          categories={filteredCats}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-4">
+        <RestaurantHeader
+          name={restaurantName}
+          mesaText={mesaText}
           loading={loading}
-          error={error}
-          onOpenCategory={openCategory}
+          coverUrl={restaurantCoverUrl}
         />
-      </section>
 
-      {/* FOOTER COMPACTO */}
-      <BusinessFooter
-        name={restaurantName}
-        address={restaurantAddress}
-        phone={restaurantPhone}
-      />
+        <SearchBar value={q} onChange={setQ} />
+
+        {(filteredCombos.length > 0 || q.trim().length === 0) && (
+          <section aria-labelledby="combos-heading" className="mt-4">
+            <SectionTitle id="combos-heading">COMBOS</SectionTitle>
+            <ComboCarousel combos={filteredCombos} onOpenCombo={openCombo} />
+            <ComboGrid combos={filteredCombos} onOpenCombo={openCombo} />
+            <Divider />
+          </section>
+        )}
+
+        <section aria-labelledby="categories-heading">
+          <SectionTitle id="categories-heading">
+            EMPIEZA TU PEDIDO AQUÍ
+          </SectionTitle>
+          <CategoryGrid
+            categories={filteredCats}
+            loading={loading}
+            error={error}
+            onOpenCategory={openCategory}
+          />
+        </section>
+
+        {/* FOOTER COMPACTO */}
+        <BusinessFooter
+          name={restaurantName}
+          address={restaurantAddress}
+          phone={restaurantPhone}
+        />
+      </main>
     </div>
   );
 }
