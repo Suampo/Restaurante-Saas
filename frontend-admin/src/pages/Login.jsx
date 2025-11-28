@@ -95,12 +95,6 @@ export default function Login() {
       // Identidad para la UI (no se envía como header)
       const { role, rid, uid, mail } = pickClaims(dbToken, email);
       setAuthIdentity({ email: mail, id: uid, role, restaurantId: rid });
-
-      // Opcional: precalienta CSRF de :5000 (evita 403 la primera vez)
-      try {
-        await fetch("http://localhost:5000/api/csrf", { credentials: "include" });
-      } catch {}
-
       const next = role === "staff"
         ? "/mozo/cobro-efectivo"
         : (loc.state?.from?.pathname || "/dashboard");

@@ -458,7 +458,7 @@ export const crearPedido = async (req, res) => {
       [total, comprobanteTipo, billingClient, billingEmail, pedidoId, note]
     );
 
-    // 8) Construir snapshot para KDS SIN tocar otra vez la BD
+      // 8) Construir snapshot para KDS SIN tocar otra vez la BD
     pedidoKds = {
       id: pedidoId,
       restaurant_id: restaurantId,
@@ -468,6 +468,7 @@ export const crearPedido = async (req, res) => {
       created_at: new Date().toISOString(),
       mesa: mesaCodigo,
       items: kdsItems,
+      note, // 👈 IMPORTANTÍSIMO: mandamos la nota al KDS
     };
 
     await client.query("COMMIT");

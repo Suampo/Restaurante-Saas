@@ -1,6 +1,13 @@
 // src/pages/Facturacion.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Search, Filter, Calendar, Eye, Download, FileText } from "lucide-react";
+import {
+  Search,
+  Filter,
+  Calendar,
+  Eye,
+  Download,
+  FileText,
+} from "lucide-react";
 import API from "../services/axiosInstance";
 
 const FACT_API_BASE = (
@@ -60,7 +67,6 @@ const estadoBadgeClass = (estado = "") => {
 /** Construye la URL del endpoint PDF en backend-facturación */
 const buildPdfUrl = (row) => {
   if (!row?.id) return null;
-  // Ahora apunta a /api/admin/cpe/:id/pdf
   return `${FACT_API_BASE}/api/admin/cpe/${row.id}/pdf`;
 };
 
@@ -139,10 +145,10 @@ export default function Facturacion() {
         to: to || undefined,
       };
 
-      // Va directo a backend-facturación (:5000)
-    const res = await API.get(`${FACT_API_BASE}/api/admin/cpe-documents`, {
-  params,
-});
+      const res = await API.get(
+        `${FACT_API_BASE}/api/admin/cpe-documents`,
+        { params }
+      );
 
       setItems(res.data.items || []);
       setSummary(res.data.summary || {});
@@ -188,25 +194,26 @@ export default function Facturacion() {
   const rows = useMemo(() => items || [], [items]);
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+    <div className="relative mx-auto w-full max-w-7xl space-y-6 px-3 py-4 sm:px-4 md:px-6 md:py-6 lg:px-8">
       {/* Fondo claro */}
-      <div className="absolute inset-0 -z-10 bg-slate-50" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-slate-50" />
 
       {/* Header */}
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             <FileText className="h-7 w-7 text-sky-500" />
             <span>Facturación</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Gestiona y visualiza todos los comprobantes electrónicos emitidos.
+          <p className="mt-1 max-w-xl text-sm text-slate-500">
+            Gestiona y visualiza todos los comprobantes electrónicos
+            emitidos.
           </p>
         </div>
         <button
           type="button"
           onClick={fetchData}
-          className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+          className="inline-flex w-full items-center justify-center rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 md:w-auto"
         >
           Actualizar
         </button>
@@ -218,7 +225,7 @@ export default function Facturacion() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Total emitidos
           </p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
             {loading ? "…" : totalEmitted}
           </p>
           <p className="mt-1 text-xs text-slate-400">Comprobantes</p>
@@ -228,7 +235,7 @@ export default function Facturacion() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Monto total
           </p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
             {loading ? "…" : PEN.format(totalAmount)}
           </p>
           <p className="mt-1 text-xs text-slate-400">Ventas totales</p>
@@ -238,7 +245,7 @@ export default function Facturacion() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Facturas
           </p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
             {loading ? "…" : totalFacturas}
           </p>
           <p className="mt-1 text-xs text-slate-400">Electrónicas (01)</p>
@@ -248,7 +255,7 @@ export default function Facturacion() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Boletas
           </p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
             {loading ? "…" : totalBoletas}
           </p>
           <p className="mt-1 text-xs text-slate-400">Electrónicas (03)</p>
@@ -259,15 +266,18 @@ export default function Facturacion() {
       <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <form
           onSubmit={handleSubmitFilters}
-          className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+          className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
         >
           {/* Buscador */}
-          <div className="flex flex-1 items-center gap-2">
-            <div className="relative w-full md:max-w-md">
+          <div className="flex-1">
+            <label className="text-xs font-medium text-slate-600">
+              Buscar comprobante
+            </label>
+            <div className="relative mt-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Buscar por serie, correlativo o cliente…"
+                placeholder="Serie, correlativo o nombre del cliente…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -276,14 +286,14 @@ export default function Facturacion() {
           </div>
 
           {/* Otros filtros */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:justify-end">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
               <select
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 sm:w-auto"
               >
-                <option value="all">Todos</option>
+                <option value="all">Todos los tipos</option>
                 <option value="01">Facturas</option>
                 <option value="03">Boletas</option>
                 <option value="07">Notas de crédito</option>
@@ -293,7 +303,7 @@ export default function Facturacion() {
               <select
                 value={estado}
                 onChange={(e) => setEstado(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 sm:w-auto"
               >
                 <option value="all">Todos los estados</option>
                 <option value="ACEPTADO">Aceptado</option>
@@ -305,41 +315,50 @@ export default function Facturacion() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
-                <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="border-none bg-transparent text-xs focus:outline-none"
-                />
-                <span className="mx-1 text-slate-300">—</span>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="border-none bg-transparent text-xs focus:outline-none"
-                />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+              <div className="flex w-full flex-col rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 sm:inline-flex sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+                <div className="mb-1 flex items-center gap-1 sm:mb-0">
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-[11px] font-medium text-slate-600">
+                    Fecha
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                  <input
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs focus:outline-none sm:w-auto"
+                  />
+                  <span className="hidden text-slate-300 sm:inline">—</span>
+                  <input
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    className="w-full rounded border px-2 py-1 text-xs focus:outline-none sm:w-auto"
+                  />
+                </div>
               </div>
 
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
-              >
-                <Filter className="h-3.5 w-3.5" />
-                Aplicar
-              </button>
-
-              {hasFilters && (
+              <div className="flex gap-2">
                 <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  type="submit"
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 sm:flex-none"
                 >
-                  Limpiar
+                  <Filter className="h-3.5 w-3.5" />
+                  Aplicar
                 </button>
-              )}
+
+                {hasFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="flex-1 text-xs font-medium text-slate-500 hover:text-slate-700 sm:flex-none"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </form>
@@ -347,38 +366,38 @@ export default function Facturacion() {
 
       {/* Tabla */}
       <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
+        <div className="w-full overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-xs sm:text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Tipo
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Serie - Correlativo
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Cliente
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Fecha
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Moneda
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Subtotal
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   IGV
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Total
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Estado
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Acciones
                 </th>
               </tr>
@@ -436,7 +455,7 @@ export default function Facturacion() {
                           <span className="font-medium">
                             {tipoLabel(row.tipo_doc)}
                           </span>
-                          <span className="mt-0.5 text-xs text-slate-400">
+                          <span className="mt-0.5 text-[11px] text-slate-400">
                             SUNAT
                           </span>
                         </div>
@@ -450,7 +469,7 @@ export default function Facturacion() {
                             {clienteNombre}
                           </span>
                           {clienteDoc && (
-                            <span className="text-xs text-slate-400">
+                            <span className="text-[11px] text-slate-400">
                               Doc: {clienteDoc}
                             </span>
                           )}
@@ -460,7 +479,7 @@ export default function Facturacion() {
                         {fmtDate(row.fecha_emision)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-700">
                           {row.moneda || "PEN"}
                         </span>
                       </td>
@@ -476,7 +495,7 @@ export default function Facturacion() {
                       <td className="whitespace-nowrap px-4 py-3 text-center">
                         <span
                           className={
-                            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium " +
+                            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium " +
                             estadoBadgeClass(row.estado)
                           }
                         >

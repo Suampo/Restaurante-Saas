@@ -113,18 +113,38 @@ export default function ComboManager({ cats: externalCats = [] }) {
     setModalState({ isOpen: false, mode: null, combo: null, position: null });
   };
   
-  const handleSaveModal = async (newValue) => {
+ const handleSaveModal = async (newValue) => {
     const { mode, combo } = modalState;
     if (!combo) return;
+
     if (mode === 'rename') {
-      const val = newValue.trim(); if (!val) return; const oldName = combo.nombre;
+      const val = newValue.trim();
+      if (!val) return;
+      const oldName = combo.nombre;
       patchCombo(combo.id, { nombre: val });
-      try { await updateCombo(combo.id, { nombre: val }); refreshQuiet(); } catch (e) { patchCombo(combo.id, { nombre: oldName }); alert(e?.response?.data?.error || "No se pudo renombrar"); }
+      try {
+        await updateCombo(combo.id, { nombre: val });
+        refreshQuiet();
+      } catch (e) {
+        patchCombo(combo.id, { nombre: oldName });
+        alert(e?.response?.data?.error || "No se pudo renombrar");
+      }
     }
+
     if (mode === 'price') {
-      const p = Number(newValue); if (!Number.isFinite(p) || p < 0) return alert("Precio inválido."); const oldPrice = combo.precio;
+      const p = Number(newValue);
+      if (!Number.isFinite(p) || p < 0) {
+        return alert("Precio inválido.");
+      }
+      const oldPrice = combo.precio;
       patchCombo(combo.id, { precio: p });
-      try { await updateCombo(combo.id, { precio: p }); refreshQuiet(); } catch (e) { patchCombo(combo.id, { precio: oldPrice }); alert(e?.response?.data?.error || "No se pudo cambiar el precio"); }
+      try {
+        await updateCombo(combo.id, { precio: p });
+        refreshQuiet();
+      } catch (e) {
+        patchCombo(combo.id, { precio: oldPrice });
+        alert(e?.response?.data?.error || "No se pudo cambiar el precio");
+      }
     }
   };
   const remove = async (id) => { if (!confirm("¿Eliminar combo? Esta acción no se puede deshacer.")) return; setDeletingId(id); const prev = combos; removeLocal(id); try { await deleteCombo(id); refreshQuiet(); } catch (e) { setCombos(prev); alert(e?.response?.data?.error || "No se pudo eliminar"); } finally { setDeletingId(null); } };

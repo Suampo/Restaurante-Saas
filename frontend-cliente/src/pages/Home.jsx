@@ -119,7 +119,7 @@ const BusinessFooter = ({ name, address, phone }) => {
 
         {/* Copyright mini */}
         <p className="mt-1 text-[10px] text-neutral-600">
-          © {year} Todos los derechos reservados.
+          © {year} MikhunAppFood - Todos los derechos reservados.
         </p>
       </div>
     </footer>

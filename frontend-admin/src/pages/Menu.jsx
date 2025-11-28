@@ -215,18 +215,24 @@ export default function Menu() {
         <Plus size={18} /> Nuevo plato
       </button>
 
-      {/* Modal */}
+        {/* Modal: Crear / Editar plato (responsive) */}
       {editing && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white ring-1 ring-black/5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-3 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg max-h-full overflow-y-auto rounded-2xl bg-white ring-1 ring-black/5">
             <div className="border-b p-4">
               <h3 className="text-lg font-semibold">
                 {creating ? "Crear plato" : "Editar plato"}
               </h3>
             </div>
+
             <div className="p-4">
-              <MenuItemEdit item={editing} onSave={handleSave} categorias={categories} />
+              <MenuItemEdit
+                item={editing}
+                onSave={handleSave}
+                categorias={categories}
+              />
             </div>
+
             <div className="flex justify-end gap-2 border-t p-3">
               <button
                 className="rounded-lg px-4 py-2 text-sm hover:bg-neutral-100"
