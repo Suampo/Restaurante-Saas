@@ -1,5 +1,7 @@
+// src/components/ComboCoverUploader.jsx
 import { useRef, useState } from "react";
 import { uploadComboCover } from "../services/combosApi";
+import { proxyImg } from "../utils/imageProxy";
 
 const FALLBACK =
   "data:image/svg+xml;utf8," +
@@ -9,7 +11,11 @@ const FALLBACK =
         font-family='Arial, sans-serif' font-size='14' fill='#9ca3af'>Sin imagen</text>
 </svg>`);
 
-export default function ComboCoverUploader({ comboId, coverUrl = "", onUploaded }) {
+export default function ComboCoverUploader({
+  comboId,
+  coverUrl = "",
+  onUploaded,
+}) {
   const [preview, setPreview] = useState(coverUrl);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
@@ -20,7 +26,6 @@ export default function ComboCoverUploader({ comboId, coverUrl = "", onUploaded 
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // preview inmediato
     const local = URL.createObjectURL(file);
     setPreview(local);
     setBusy(true);
@@ -30,18 +35,28 @@ export default function ComboCoverUploader({ comboId, coverUrl = "", onUploaded 
       setPreview(res.cover_url || "");
       onUploaded?.(res.cover_url || "");
     } catch (err) {
-      alert(err?.response?.data?.error || err.message || "Error subiendo la imagen");
+      alert(
+        err?.response?.data?.error ||
+          err.message ||
+          "Error subiendo la imagen"
+      );
       setPreview(coverUrl || "");
     } finally {
       setBusy(false);
     }
   };
 
+  const display = preview || FALLBACK;
+  const imgSrc =
+    display.startsWith("http") && !display.includes("data:")
+      ? proxyImg(display, 320, 240)
+      : display;
+
   return (
     <div className="space-y-2">
       <div className="w-full aspect-[4/3] overflow-hidden rounded-xl border bg-neutral-50">
         <img
-          src={preview || FALLBACK}
+          src={imgSrc}
           alt="Portada del combo"
           className="h-full w-full object-cover"
           onError={(e) => (e.currentTarget.src = FALLBACK)}

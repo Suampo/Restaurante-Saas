@@ -13,8 +13,6 @@ const KEYWORDS = {
   drinks: ["bebida", "gaseosa", "refresco", "drink"],
 };
 
-const currency = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
-
 function resolveImgSrc(absolute, item, fallbackImg) {
   const candidates = [
     item?.imagen_url_abs,
@@ -63,6 +61,12 @@ export default function CartSheet({
   onRemove, // (index)
   onPay,
 }) {
+  // formateador seguro
+  const fmt = (value) =>
+    formatPEN
+      ? formatPEN(value)
+      : `S/ ${Number(value || 0).toFixed(2)}`;
+
   /* ===== contexto (sugerencias) ===== */
   const { categories = [], menuAll: menuCtxAll, apiBase } = useMenuPublic();
   const absolute = absProp || ((u) => makeAbs(apiBase, u));
@@ -72,8 +76,9 @@ export default function CartSheet({
     const flat = [];
     for (const c of categories) {
       const arr = Array.isArray(c?.items) ? c.items : [];
-      for (const m of arr)
+      for (const m of arr) {
         flat.push({ ...m, categoria_id: m?.categoria_id ?? c?.id ?? null });
+      }
     }
     return flat;
   }, [menuCtxAll, categories]);
@@ -156,14 +161,22 @@ export default function CartSheet({
   const deltaY = useRef(0);
   const dragging = useRef(false);
 
+  // abrir/cerrar + bloquear scroll body
   useEffect(() => {
     if (open) {
       setVisible(true);
       requestAnimationFrame(() => setState("open"));
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
+
+      const onKey = (e) => {
+        if (e.key === "Escape") onClose?.();
+      };
+      window.addEventListener("keydown", onKey);
+
       return () => {
         document.body.style.overflow = prev;
+        window.removeEventListener("keydown", onKey);
       };
     } else if (visible) {
       setState("closing");
@@ -173,7 +186,7 @@ export default function CartSheet({
       }, 260);
       return () => clearTimeout(t);
     }
-  }, [open]); // eslint-disable-line
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!visible) return null;
   const hasItems = Array.isArray(cart) && cart.length > 0;
@@ -191,6 +204,7 @@ export default function CartSheet({
     window.addEventListener("touchmove", onPointerMove, { passive: false });
     window.addEventListener("touchend", onPointerUp);
   };
+
   const onPointerMove = (e) => {
     if (!dragging.current || !panelRef.current) return;
     const current = e.clientY || e.touches?.[0]?.clientY || 0;
@@ -202,6 +216,7 @@ export default function CartSheet({
     panelRef.current.style.transform = `translateY(${damp}px)`;
     if (e.cancelable) e.preventDefault();
   };
+
   const onPointerUp = () => {
     if (!dragging.current) return;
     dragging.current = false;
@@ -249,7 +264,7 @@ export default function CartSheet({
         data-state={state}
       >
         {/* header */}
-        <div className="relative border-b border-black/5 md:border-0 md:pt-2 shrink-0">
+        <div className="relative border-b border-black/5 md:border-0 shrink-0 md:pt-2">
           <div className="absolute left-1/2 top-2 -translate-x-1/2 md:hidden">
             <span
               onPointerDown={onPointerDown}
@@ -282,6 +297,7 @@ export default function CartSheet({
             </div>
 
             <button
+              type="button"
               onClick={onClose}
               className="rounded-full border border-neutral-200 bg-white/90 px-3 py-1.5 text-xs font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
               aria-label="Cerrar carrito"
@@ -313,8 +329,8 @@ export default function CartSheet({
                       item.isCombo ? { imagen_url: comboImg } : item,
                       fallbackImg
                     );
-                    const unitLabel = formatPEN(unit);
-                    const lineTotalLabel = formatPEN(lineTotal);
+                    const unitLabel = fmt(unit);
+                    const lineTotalLabel = fmt(lineTotal);
 
                     return (
                       <li
@@ -339,9 +355,7 @@ export default function CartSheet({
                               e.currentTarget.src = fallbackImg;
                             }}
                             alt={
-                              item.isCombo
-                                ? item?.nombreCombo
-                                : item?.nombre
+                              item.isCombo ? item?.nombreCombo : item?.nombre
                             }
                             className="h-full w-full object-cover"
                           />
@@ -389,6 +403,7 @@ export default function CartSheet({
                           {/* control de cantidad */}
                           <div className="flex items-center gap-1.5 rounded-full bg-neutral-100 px-1.5 py-1 ring-1 ring-neutral-200">
                             <button
+                              type="button"
                               onClick={() => onRemove(idx)}
                               className="grid h-7 w-7 place-items-center rounded-full bg-white text-neutral-700 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
                               aria-label={`Quitar uno de ${
@@ -397,7 +412,6 @@ export default function CartSheet({
                                   : item?.nombre
                               }`}
                               title="Quitar uno"
-                              type="button"
                             >
                               <span className="text-base leading-none">−</span>
                             </button>
@@ -405,6 +419,7 @@ export default function CartSheet({
                               {qty}
                             </span>
                             <button
+                              type="button"
                               onClick={() => onAdd(idx)}
                               className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-t from-emerald-600 to-emerald-500 text-white shadow-sm shadow-emerald-500/40 hover:from-emerald-500 hover:to-emerald-400 active:scale-95 transition"
                               aria-label={`Agregar uno de ${
@@ -413,7 +428,6 @@ export default function CartSheet({
                                   : item?.nombre
                               }`}
                               title="Agregar uno"
-                              type="button"
                             >
                               <span className="text-base leading-none">+</span>
                             </button>
@@ -439,7 +453,7 @@ export default function CartSheet({
                       <>
                         Te faltan{" "}
                         <b className="font-semibold">
-                          {formatPEN(missing)}
+                          {fmt(missing)}
                         </b>{" "}
                         para el mínimo de compra.
                       </>
@@ -484,8 +498,7 @@ export default function CartSheet({
                                     type="button"
                                     onClick={() => addSuggestion(opt)}
                                     aria-label="Agregar"
-                                    className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full
-                                               bg-emerald-600 text-white shadow-md hover:bg-emerald-500"
+                                    className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-emerald-600 text-white shadow-md hover:bg-emerald-500"
                                   >
                                     +
                                   </button>
@@ -495,7 +508,7 @@ export default function CartSheet({
                                     {opt.name}
                                   </div>
                                   <div className="mt-0.5 text-[12px] text-neutral-600">
-                                    {currency(opt.price)}
+                                    {fmt(opt.price)}
                                   </div>
                                 </div>
                               </article>
@@ -523,6 +536,7 @@ export default function CartSheet({
                 </p>
                 <div className="mt-4">
                   <button
+                    type="button"
                     onClick={onClose}
                     className="rounded-xl border px-4 py-2 text-sm text-neutral-900 shadow-sm hover:bg-neutral-50"
                   >
@@ -535,64 +549,67 @@ export default function CartSheet({
         </div>
 
         {/* footer sticky */}
-<div className="sticky bottom-0 z-10 border-t border-neutral-100 bg-gradient-to-t from-white via-white/95 to-white/90 backdrop-blur-sm px-4 py-3 sm:py-4 shrink-0">
-  <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    {/* Subtotal */}
-    <div className="flex flex-col">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-        Subtotal <span className="font-normal lowercase text-neutral-400">(sin envío)</span>
-      </span>
-      <span className="mt-0.5 text-2xl font-extrabold leading-none tracking-tight text-neutral-900">
-        {formatPEN(total)}
-      </span>
-    </div>
+        <div className="sticky bottom-0 z-10 border-t border-neutral-100 bg-gradient-to-t from-white via-white/95 to-white/90 backdrop-blur-sm px-4 py-3 sm:py-4 shrink-0">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {/* Subtotal */}
+            <div className="flex flex-col">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                Subtotal{" "}
+                <span className="font-normal lowercase text-neutral-400">
+                  (sin envío)
+                </span>
+              </span>
+              <span className="mt-0.5 text-2xl font-extrabold leading-none tracking-tight text-neutral-900">
+                {fmt(total)}
+              </span>
+            </div>
 
-    {/* Botón de acción */}
-    <div className="flex flex-col items-stretch gap-1 sm:items-end">
-      <button
-        type="button"
-        onClick={onPay}
-        disabled={!hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)}
-        className={`
-          group inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-semibold text-white
-          transition-all duration-200
-          ${
-            !hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)
-              ? "bg-emerald-300 cursor-not-allowed opacity-70 shadow-none"
-              : "bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_12px_30px_rgba(16,185,129,0.45)] hover:translate-y-[1px] hover:shadow-[0_16px_40px_rgba(16,185,129,0.55)] active:translate-y-[2px]"
-          }
-        `}
-      >
-        <span className="mr-2">Pagar pedido</span>
-        <svg
-          className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path
-            d="M5 12h14M13 6l6 6-6 6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+            {/* Botón acción */}
+            <div className="flex flex-col items-stretch gap-1 sm:items-end">
+              <button
+                type="button"
+                onClick={onPay}
+                disabled={!hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)}
+                className={`
+                  group inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-semibold text-white
+                  transition-all duration-200
+                  ${
+                    !hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)
+                      ? "bg-emerald-300 cursor-not-allowed opacity-70 shadow-none"
+                      : "bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_12px_30px_rgba(16,185,129,0.45)] hover:translate-y-[1px] hover:shadow-[0_16px_40px_rgba(16,185,129,0.55)] active:translate-y-[2px]"
+                  }
+                `}
+              >
+                <span className="mr-2">Pagar pedido</span>
+                <svg
+                  className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    d="M5 12h14M13 6l6 6-6 6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
 
-      {MIN_SUBTOTAL > 0 && !reachedMin && (
-        <p className="text-[11px] text-neutral-500">
-          Te faltan{" "}
-          <span className="font-semibold text-neutral-800">
-            {formatPEN(missing)}
-          </span>{" "}
-          para completar el mínimo.
-        </p>
-      )}
-    </div>
-  </div>
-</div>
-
+              {MIN_SUBTOTAL > 0 && !reachedMin && (
+                <p className="text-[11px] text-neutral-500">
+                  Te faltan{" "}
+                  <span className="font-semibold text-neutral-800">
+                    {fmt(missing)}
+                  </span>{" "}
+                  para completar el mínimo.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+  

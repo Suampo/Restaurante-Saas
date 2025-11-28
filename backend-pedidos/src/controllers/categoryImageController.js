@@ -17,6 +17,9 @@ const ALLOWED = new Set([
   "image/gif",
 ]);
 
+// Tamaño máximo en px (ancho/alto) para guardar en storage
+const MAX_SIZE = 1600;
+
 export const uploadCategoryCover = async (req, res) => {
   try {
     const restaurantId = req.user.restaurantId; // authTenant
@@ -45,9 +48,15 @@ export const uploadCategoryCover = async (req, res) => {
       return res.status(404).json({ error: "Categoría no encontrada" });
     }
 
-    // 🔁 Convertir SIEMPRE a WebP (peso menor)
+    // 🔁 Convertir SIEMPRE a WebP, limitado a MAX_SIZE
     const webpBuffer = await sharp(req.file.buffer)
       .rotate() // respeta orientación EXIF
+      .resize({
+        width: MAX_SIZE,
+        height: MAX_SIZE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .webp({ quality: 80 })
       .toBuffer();
 

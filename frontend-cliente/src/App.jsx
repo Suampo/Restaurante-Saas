@@ -1,15 +1,12 @@
 // src/App.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import { crearOActualizarIntent, abandonarIntent } from "./services/checkout";
 import { crearIntentTakeaway } from "./services/checkout.takeaway";
 import AnimatedRoutes from "./AnimatedRoutes";
-import Home from "./pages/Home";
-import Category from "./pages/Category";
-import Combo from "./pages/Combo";
 import BillingModal from "./components/BillingModal";
 
-import CartBar, { CARTBAR_H } from "./components/CartBar";
+import CartBar from "./components/CartBar";
 import CartSheet from "./components/CartSheet";
 import MenuProvider from "./hooks/MenuProvider.jsx";
 import { useMenuPublic } from "./hooks/useMenuPublic";
@@ -109,7 +106,7 @@ const genIdem = () =>
   `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
 function useUrlParams() {
-  const p = new URLSearchParams(location.search);
+  const p = new URLSearchParams(window.location.search);
   return {
     restaurantId: Number(p.get("restaurantId") || 1),
     mesaId: (p.get("mesaId") && Number(p.get("mesaId"))) || null,
@@ -120,7 +117,7 @@ function useUrlParams() {
 // === Helper para detectar Takeaway por URL/mesaCode ===
 function useIsTakeaway(mesaCode) {
   return useMemo(() => {
-    const qs = new URLSearchParams(location.search);
+    const qs = new URLSearchParams(window.location.search);
     const mesaCodeUpper = String(mesaCode || "").toUpperCase();
     return qs.get("takeaway") === "1" || mesaCodeUpper === "LLEVAR";
   }, [mesaCode]);
@@ -174,18 +171,13 @@ function AppInner() {
     ensureCsrfCookie();
   }, []);
 
-  // 👉 Publica la altura del CartBar como CSS var para que los modales la respeten
+  // valor inicial seguro para la variable, CartBar luego la sobrescribe con la altura real
   useEffect(() => {
-    const h = itemCount > 0 ? CARTBAR_H : 0;
-    document.documentElement.style.setProperty("--cart-bar-h", `${h}px`);
-    return () => {
-      if (itemCount === 0)
-        document.documentElement.style.setProperty("--cart-bar-h", "0px");
-    };
-  }, [itemCount]);
+    document.documentElement.style.setProperty("--cart-bar-h", "0px");
+  }, []);
 
   // 🔐 Auto-login + siembra cookie httpOnly + validación por cookie
-   const autoLogin = useCallback(async () => {
+  const autoLogin = useCallback(async () => {
     try {
       // 1) ¿Ya tengo un token de cliente válido para ESTE restaurante?
       let token =
@@ -304,25 +296,24 @@ function AppInner() {
             }
           }
           if (!mesaIdToUse) {
-            alert("QR inválido o falta la mesa 'LLEVAR'. Vuelve a escanear el QR.");
+            alert(
+              "QR inválido o falta la mesa 'LLEVAR'. Vuelve a escanear el QR."
+            );
             setBillingLoading(false);
             return;
           }
         }
 
-       // (2) Nota
-const rawFromSheet =
-  typeof window !== "undefined" ? window.__CHECKOUT_NOTE__ || "" : "";
-const rawFromModal = checkoutNote || "";
+        // (2) Nota
+        const rawFromSheet =
+          typeof window !== "undefined" ? window.__CHECKOUT_NOTE__ || "" : "";
+        const rawFromModal = checkoutNote || "";
 
-// Unimos ambas notas si existen
-const pieces = [];
-if (rawFromSheet.trim()) pieces.push(rawFromSheet.trim());
-if (rawFromModal.trim()) pieces.push(rawFromModal.trim());
+        const pieces = [];
+        if (rawFromSheet.trim()) pieces.push(rawFromSheet.trim());
+        if (rawFromModal.trim()) pieces.push(rawFromModal.trim());
+        const noteToUse = pieces.length ? pieces.join(" | ") : null;
 
-// Ejemplo si hay ambas:
-// "Sin cebolla en la ensalada. | Poco picante en general."
-const noteToUse = pieces.length ? pieces.join(" | ") : null;
         // (3) Tipo de CPE (solo si va por SUNAT)
         const comprobanteTipo = isSunatOrder
           ? billing?.docType === "RUC"
@@ -494,13 +485,17 @@ const noteToUse = pieces.length ? pieces.join(" | ") : null;
         </div>
       )}
 
-     <div
-  className="min-h-svh flex flex-col overflow-x-hidden"
-  style={itemCount > 0 ? { paddingBottom: `calc(${CARTBAR_H}px + env(safe-area-inset-bottom))` } : undefined}
->
-  <AnimatedRoutes />
-</div>
-
+      <div
+        className="min-h-svh flex flex-col overflow-x-hidden"
+        style={{
+          // Usa SIEMPRE la altura real que publica CartBar (mobile/desktop),
+          // con fallback a 0px cuando no existe carrito.
+          paddingBottom:
+            "calc(var(--cart-bar-h, 0px) + env(safe-area-inset-bottom))",
+        }}
+      >
+        <AnimatedRoutes />
+      </div>
 
       <CartBar
         itemCount={itemCount}
@@ -576,7 +571,6 @@ const noteToUse = pieces.length ? pieces.join(" | ") : null;
               } catch {}
             }
             // (Opcional) podrías marcar el pedido como "pendiente en caja" en tu backend aquí.
-            // await axios.post(`${API_BASE}/api/pedidos/${orderInfo?.pedidoId}/cash-pending`, { amount });
 
             return { amount, pedidoId: orderInfo?.pedidoId || null };
           } catch (e) {
@@ -620,7 +614,8 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
     <div
       className="fixed inset-0 z-50 grid place-items-center p-4 sm:p-6"
       style={{
-        background: "linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35))",
+        background:
+          "linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35))",
       }}
       aria-modal="true"
       role="dialog"
@@ -695,10 +690,13 @@ function NoteModal({ open, note, onChange, onClose, onContinue }) {
             </label>
 
             <div
-              className={`
-                absolute bottom-2.5 right-3 text-[11px]
-                ${overLimit ? "text-rose-600" : nearLimit ? "text-amber-600" : "text-neutral-400"}
-              `}
+              className={`absolute bottom-2.5 right-3 text-[11px] ${
+                overLimit
+                  ? "text-rose-600"
+                  : nearLimit
+                  ? "text-amber-600"
+                  : "text-neutral-400"
+              }`}
             >
               {len}/{limit}
             </div>

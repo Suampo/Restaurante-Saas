@@ -17,6 +17,8 @@ const ALLOWED = new Set([
   "image/gif",
 ]);
 
+const MAX_SIZE = 1600;
+
 export const uploadMenuImage = async (req, res) => {
   try {
     const restaurantId = req.user.restaurantId;
@@ -45,13 +47,23 @@ export const uploadMenuImage = async (req, res) => {
       return res.status(404).json({ error: "Item no encontrado" });
     }
 
-    // 🔁 Convertir SIEMPRE a WebP
+    // 🔁 Convertir SIEMPRE a WebP, limitado a MAX_SIZE
     const webpBuffer = await sharp(req.file.buffer)
       .rotate()
+      .resize({
+        width: MAX_SIZE,
+        height: MAX_SIZE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .webp({ quality: 80 })
       .toBuffer();
 
-    const bucket = process.env.SUPABASE_BUCKET_MENU || "menu-items";
+    const bucket =
+      process.env.SUPABASE_BUCKET_MENU ||
+      process.env.SUPABASE_BUCKET || // tu bucket viejo (menu-images) si lo sigues usando
+      "menu-items";
+
     const ext = "webp";
     const path = `restaurants/${restaurantId}/menu_items/${id}/${uuid()}.${ext}`;
 
