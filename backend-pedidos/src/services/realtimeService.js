@@ -129,7 +129,15 @@ export const initSocket = async (server) => {
                p.estado,
                p.total AS monto,
                p.created_at,
-               p.note AS note,                         -- 👈 nota para cocina
+               p.note AS note,
+               -- 👇 último método de pago registrado para este pedido
+               (
+                 SELECT pg.metodo
+                 FROM pagos pg
+                 WHERE pg.pedido_id = p.id
+                 ORDER BY pg.created_at DESC
+                 LIMIT 1
+               ) AS metodo_pago,
                COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
                COALESCE(
                  (SELECT jsonb_agg(
@@ -219,7 +227,15 @@ const buildPedidoKds = async (restaurantId, pedidoId) => {
        p.estado,
        p.total AS monto,
        p.created_at,
-       p.note AS note,                          -- 👈 nota también aquí
+       p.note AS note,
+       -- 👇 último método de pago para este pedido
+       (
+         SELECT pg.metodo
+         FROM pagos pg
+         WHERE pg.pedido_id = p.id
+         ORDER BY pg.created_at DESC
+         LIMIT 1
+       ) AS metodo_pago,
        COALESCE(m.codigo, 'Mesa ' || p.mesa_id::text) AS mesa,
        COALESCE(
          (SELECT jsonb_agg(
