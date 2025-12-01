@@ -5,6 +5,7 @@ import { io } from "socket.io-client";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:4000";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 const TZ = "America/Lima";
+
 const parseJwt = (t) => {
   try {
     return JSON.parse(atob(String(t).split(".")[1]));
@@ -12,6 +13,7 @@ const parseJwt = (t) => {
     return {};
   }
 };
+
 /* ========================
  * Helpers
  * ======================== */
@@ -50,7 +52,6 @@ function getInitialAuth() {
   return { token: "", user: null };
 }
 
-
 // Hora HH:mm en Lima
 function formatHoraPedido(createdAt) {
   if (!createdAt) return "";
@@ -77,28 +78,23 @@ function getMetodoPago(pedido) {
   );
 }
 
-// Regla de visibilidad para el KDS:
-// - Mostrar todos los pedidos con estado "pagado"
-// - Mostrar pedidos "pendiente_pago" SOLO si el método de pago es efectivo
+// ✅ Regla de visibilidad para el KDS (versión simplificada):
+// Mostrar TODOS los pedidos salvo los claramente descartados
 function isPedidoVisibleEnKds(pedido) {
   const estado = String(pedido.estado || "").toLowerCase();
-  const metodo = String(getMetodoPago(pedido) || "").toLowerCase();
 
-  // siempre mostrar pagados
-  if (estado === "pagado") return true;
+  // ocultamos solo estados claramente descartados
+  if (
+    estado === "anulado" ||
+    estado === "cancelado" ||
+    estado === "rechazado" ||
+    estado === "abandonado"
+  ) {
+    return false;
+  }
 
-  const esPendiente =
-    estado === "pendiente_pago" ||
-    estado === "pendiente de pago" ||
-    estado === "pendiente";
-
-  const esEfectivo = metodo === "efectivo" || metodo === "cash";
-
-  // pendiente + efectivo => visible
-  if (esPendiente && esEfectivo) return true;
-
-  // todo lo demás no se muestra en el KDS
-  return false;
+  // todo lo demás se muestra en el KDS
+  return true;
 }
 
 // Badge sencillo
@@ -289,6 +285,7 @@ function KdsLoginScreen({ onLogin, error, estado }) {
     </div>
   );
 }
+
 function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
   const estadoLower = String(pedido.estado || "").toLowerCase();
   const metodoPago = getMetodoPago(pedido);
@@ -318,6 +315,18 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
   } else {
     estadoLabel = pedido.estado || "Estado";
     estadoTone = "muted";
+  }
+
+  // 👇 Badge amigable para el método de pago
+  let pagoBadgeLabel = "";
+  if (metodoLower === "efectivo" || metodoLower === "cash") {
+    pagoBadgeLabel = "💵 Efectivo";
+  } else if (metodoLower === "tarjeta" || metodoLower === "card") {
+    pagoBadgeLabel = "💳 Tarjeta";
+  } else if (metodoLower.includes("yape")) {
+    pagoBadgeLabel = "📱 Yape";
+  } else if (metodoLower.includes("plin")) {
+    pagoBadgeLabel = "📱 Plin";
   }
 
   const hora = formatHoraPedido(pedido.created_at);
@@ -375,8 +384,8 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
             label={cocinaLabel}
             tone={kitchenState === "entregado" ? "info" : "muted"}
           />
-          {(metodoLower === "efectivo" || metodoLower === "cash") && (
-            <StatusBadge label="💵 Pago en efectivo" tone="info" />
+          {pagoBadgeLabel && (
+            <StatusBadge label={pagoBadgeLabel} tone="info" />
           )}
         </div>
       </div>
@@ -493,7 +502,6 @@ function PedidoCard({ pedido, kitchenState, onToggleKitchen }) {
     </div>
   );
 }
-
 
 function KdsDisplayScreen({
   user,
@@ -683,7 +691,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-       const socket = io(SOCKET_URL, {
+    const socket = io(SOCKET_URL, {
       transports: ["websocket"],
       auth: { token },
       extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
@@ -730,7 +738,7 @@ function App() {
     socket.on("init_pedidos", (lista) => {
       const arr = Array.isArray(lista) ? lista : [];
 
-      // solo pedidos "pagado" o "pendiente_pago" efectivo
+      // solo pedidos visibles según nuestra regla
       const visibles = arr.filter(isPedidoVisibleEnKds);
 
       setPedidos(visibles);
