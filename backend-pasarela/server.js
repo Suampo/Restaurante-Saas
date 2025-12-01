@@ -23,11 +23,14 @@ const origins = (process.env.CORS_ORIGINS || "http://localhost:5173")
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, false);
+    // Permitir llamadas sin Origin (curl, healthchecks, etc.)
+    if (!origin) return cb(null, true);
 
     if (origins.includes(origin)) {
-      return cb(null, origin);
+      return cb(null, true); // origin permitido
     }
+
+    // Origen no permitido => sin CORS
     return cb(new Error("CORS not allowed"), false);
   },
   credentials: true,
@@ -40,8 +43,15 @@ const corsOptions = {
     "X-Device-Session-Id",
     "X-Device-Id",
     "X-meli-session-id",
+
+    // Headers que el navegador suele enviar en preflight/peticiones
+    "Cache-Control",
+    "Pragma",
+    "Accept",
+    "X-Requested-With",
   ],
 };
+
 app.disable("x-powered-by");
 app.set("etag", false);
 
@@ -94,6 +104,14 @@ app.use(morgan("dev"));
 
 /* ===== PING ===== */
 app.get("/", (_, res) => res.send("backend-pasarela OK"));
+
+/* ===== CSRF dummy para PSP =====
+   Este backend NO usa CSRF basado en cookie.
+   Solo devolvemos 204 para que ensureCsrfCookie (psp) no falle.
+================================================================ */
+app.get("/api/csrf", (req, res) => {
+  res.status(204).end();
+});
 
 /* ===== DEBUG: token del .env (no multitenant) ===== */
 app.get("/__mpdebug", (_, res) => {
