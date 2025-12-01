@@ -38,6 +38,7 @@ import exportRoutes from "./routes/export.js";
 import staffRoutes from "./routes/staff.routes.js";
 
 import healthRoutes from "./routes/healthRoutes.js";
+import kdsWebhookRoutes from "./routes/realtime.kds.webhook.js";
 /* ✅ INVENTARIO */
 import inventarioRoutes from "./routes/inventarioRoutes.js";
 
@@ -308,7 +309,7 @@ app.use("/api/combos", requireDbToken, combosRoutes);
 app.use("/api/categorias", requireDbToken, categoriaRoutes);
 app.use("/api/reportes", requireDbToken, reportesRoutes);
 app.use("/api", requireDbToken, exportRoutes);
-
+app.use(kdsWebhookRoutes);
 /* ✅ ADMIN (para “Trabajadores”) */
 app.use("/admin", requireDbToken, adminCashRoutes);
 

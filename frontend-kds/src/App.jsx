@@ -83,20 +83,14 @@ function getMetodoPago(pedido) {
 function isPedidoVisibleEnKds(pedido) {
   const estado = String(pedido.estado || "").toLowerCase();
 
-  // ocultamos solo estados claramente descartados
-  if (
-    estado === "anulado" ||
-    estado === "cancelado" ||
-    estado === "rechazado" ||
-    estado === "abandonado"
-  ) {
-    return false;
+  // solo aceptamos pedidos con estado "pagado"
+  if (estado === "pagado") {
+    return true;
   }
 
-  // todo lo demás se muestra en el KDS
-  return true;
+  // todo lo demás NO se muestra (pendiente_pago, pendiente, etc.)
+  return false;
 }
-
 // Badge sencillo
 function StatusBadge({ label, tone }) {
   const colors = {
