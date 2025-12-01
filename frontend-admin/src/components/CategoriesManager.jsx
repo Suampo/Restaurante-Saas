@@ -15,7 +15,7 @@ import {
 import EditModal from "./EditModal";
 import ConfirmationModal from "./ConfirmationModal";
 import RecommendedCategoriesHint from "./menu/RecommendedCategoriesHint";
-import { proxyImg } from "../utils/imageProxy";
+import ApiImage from "./ApiImage";
 
 // Iconos
 const Icon = ({ name, className = "h-5 w-5" }) => {
@@ -441,9 +441,6 @@ export default function CategoriesManager({ onChange }) {
                       ver
                     : "")
                 : null;
-              const src = rawUrl
-                ? proxyImg(rawUrl, 160, 160)
-                : null;
               const inputId = `cat-file-${c.id}`;
 
               return (
@@ -453,10 +450,12 @@ export default function CategoriesManager({ onChange }) {
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-4">
                     <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-gray-100 ring-1 ring-black/5">
-                      {hasCover ? (
-                        <img
-                          src={src}
+                      {hasCover && rawUrl ? (
+                        <ApiImage
+                          url={rawUrl}
                           alt={c.nombre}
+                          width={48}
+                          height={48}
                           className="h-full w-full object-cover"
                         />
                       ) : (

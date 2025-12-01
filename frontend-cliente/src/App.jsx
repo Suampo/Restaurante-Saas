@@ -176,30 +176,47 @@ function AppInner() {
     document.documentElement.style.setProperty("--cart-bar-h", "0px");
   }, []);
 
-  // 🔐 Auto-login + siembra cookie httpOnly + validación por cookie
-  const autoLogin = useCallback(async () => {
+    const autoLogin = useCallback(async () => {
     try {
-      // 1) ¿Ya tengo un token de cliente válido para ESTE restaurante?
+      // 1) Leer cualquier token que exista en storage
       let token =
         sessionStorage.getItem("client_token") ||
-        localStorage.getItem("client_token") || // por si quedó algo viejo
+        sessionStorage.getItem("token") ||
+        localStorage.getItem("client_token") ||
+        localStorage.getItem("token") ||
         null;
+
+      const clearStorages = () => {
+        sessionStorage.removeItem("client_token");
+        sessionStorage.removeItem("token");
+        localStorage.removeItem("client_token");
+        localStorage.removeItem("token");
+      };
 
       if (token) {
         const payload = parseJwt(token);
+        const now = Math.floor(Date.now() / 1000);
+
         const ridToken = Number(
           payload?.restaurantId ?? payload?.restaurant_id ?? 0
         );
+        const exp = Number(payload?.exp || 0);
+        const role = payload?.role;
 
-        // Si el token es de otro restaurante o está raro → lo descartamos
-        if (!ridToken || ridToken !== Number(restaurantId)) {
-          sessionStorage.removeItem("client_token");
-          localStorage.removeItem("client_token");
+        const invalid =
+          !ridToken ||
+          ridToken !== Number(restaurantId) ||
+          !exp ||
+          exp <= now + 60 || // vencido o por vencer en 1 minuto
+          role !== "client";
+
+        if (invalid) {
+          clearStorages();
           token = null;
         }
       }
 
-      // 2) Si no tengo token → solicitar uno nuevo al backend
+      // 2) Si no hay token válido → pedir uno nuevo al backend
       if (!token) {
         await ensureCsrfCookie();
         const headers = withCsrf({ "Content-Type": "application/json" });
@@ -217,11 +234,13 @@ function AppInner() {
         }
 
         const data = await res.json();
-        token = data.token;
+        token = data.token || null;
+        if (!token) throw new Error("Backend no devolvió token");
 
-        // Guardamos SOLO en sessionStorage (token de vida corta)
+        // Guardamos SOLO en sessionStorage
         sessionStorage.setItem("client_token", token);
-        // Limpieza de restos viejos
+        sessionStorage.setItem("token", token);
+        // Limpiamos restos viejos
         localStorage.removeItem("client_token");
         localStorage.removeItem("token");
       }
@@ -232,6 +251,7 @@ function AppInner() {
       throw new Error("No se pudo autenticar al cliente");
     }
   }, [restaurantId]);
+
 
   const mapCartToPedidoItems = (c) =>
     c.map((i) => {

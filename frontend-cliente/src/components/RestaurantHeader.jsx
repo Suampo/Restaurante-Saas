@@ -1,5 +1,5 @@
 // src/components/RestaurantHeader.jsx
-import React from "react";
+import React, { useMemo } from "react";
 
 const API_BASE =
   import.meta.env.VITE_API_PEDIDOS ||
@@ -12,6 +12,22 @@ const isAbs = (u = "") =>
 const toAbs = (u = "") =>
   isAbs(u) ? u : `${API_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
 
+// Solo proxys si es URL http(s) normal y aún no pasa por /img
+const shouldProxy = (u = "") =>
+  /^https?:\/\//i.test(u) && !u.includes("/img?");
+
+// Igual que en CategoryTile/ComboCard pero simplificado para el header
+const imgFit = (url, w = 800, q = 70, fmt = "webp") => {
+  const abs = toAbs(url);
+  if (!shouldProxy(abs)) return abs;
+  const u = new URL(`${API_BASE}/img`);
+  u.searchParams.set("url", abs);
+  u.searchParams.set("width", String(w));
+  u.searchParams.set("q", String(q));
+  u.searchParams.set("fmt", fmt);
+  return u.toString();
+};
+
 export default function RestaurantHeader({
   name,
   mesaText,
@@ -19,7 +35,15 @@ export default function RestaurantHeader({
   coverUrl,
 }) {
   const displayName = loading ? "Cargando…" : name || "Restaurante demo";
-  const fullCover = coverUrl ? toAbs(coverUrl) : null;
+
+  // URL original (Supabase o relativa)
+  const rawCover = coverUrl ? toAbs(coverUrl) : null;
+
+  // Versión optimizada para el header (ancho ~800px, webp)
+  const fullCover = useMemo(() => {
+    if (!rawCover) return null;
+    return imgFit(rawCover, 800, 70, "webp");
+  }, [rawCover]);
 
   return (
     <div className="mb-5 md:mb-7">
@@ -34,6 +58,7 @@ export default function RestaurantHeader({
         {!fullCover && (
           <div className="absolute inset-0 bg-gradient-to-r from-[#fdf5ec] via-[#fefaf4] to-[#fde7d0]" />
         )}
+
         {/* Degradado para que el texto sea legible encima de la foto */}
         <div className="absolute inset-0 bg-gradient-to-r from-white/96 via-white/82 to-white/40" />
 

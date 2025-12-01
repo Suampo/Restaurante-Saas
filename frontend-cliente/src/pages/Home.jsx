@@ -12,7 +12,12 @@ import CategoryTile from "../components/CategoryTile";
 import RestaurantHeader from "../components/RestaurantHeader";
 import ComboCard from "../components/ComboCard";
 
-/* Imagen fallback inline */
+/* ======== CONFIG IMÁGENES / API ======== */
+const API_PEDIDOS_BASE =
+  import.meta.env.VITE_API_PEDIDOS ||
+  import.meta.env.VITE_API_URL ||
+  "https://api-pedidos.mikhunappfood.com";
+
 const FALLBACK =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'>
@@ -20,6 +25,25 @@ const FALLBACK =
     <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle'
           font-family='Arial, sans-serif' font-size='16' fill='#6b7280'>Sin imagen</text>
   </svg>`);
+
+/** Normaliza texto (sin tildes, minúsculas) */
+const normalizeNoAccents = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+/** Construye URL optimizada desde tu backend /img */
+const buildImg = (url, { w = 464, h = 261 } = {}) => {
+  if (!url) return FALLBACK;
+  try {
+    const base = (API_PEDIDOS_BASE || "").replace(/\/$/, "");
+    const encoded = encodeURIComponent(url);
+    return `${base}/img?url=${encoded}&w=${w}&h=${h}&fit=cover`;
+  } catch {
+    return url;
+  }
+};
 
 /* UI helpers */
 const SectionTitle = ({ id, children, right }) => (
@@ -88,12 +112,10 @@ const BusinessFooter = ({ name, address, phone }) => {
       "
     >
       <div className="mx-auto flex max-w-md flex-col items-center gap-1.5">
-        {/* Nombre del Negocio */}
         <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-400">
           {name}
         </h3>
 
-        {/* Info en línea (Flex Wrap) */}
         <div className="flex flex-wrap justify-center items-center gap-x-4 gap-y-1 text-xs font-medium text-neutral-600">
           {address && (
             <div className="flex items-center gap-1.5">
@@ -117,7 +139,6 @@ const BusinessFooter = ({ name, address, phone }) => {
           )}
         </div>
 
-        {/* Copyright mini */}
         <p className="mt-1 text-[10px] text-neutral-600">
           © {year} MikhunAppFood - Todos los derechos reservados.
         </p>
@@ -262,23 +283,30 @@ const ComboCarousel = ({ combos, onOpenCombo }) => {
         className="flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2 px-3 no-scrollbar"
       >
         <div className="shrink-0 w-2" aria-hidden />
-        {combos.map((co) => (
-          <div
-            key={co.id}
-            className="
-              combo-item shrink-0 snap-start
-              min-w-[88%] sm:min-w-[70%] max-[360px]:min-w-[92%]
-            "
-          >
-            <ComboCard
-              combo={co}
-              onChoose={() => onOpenCombo(co.id)}
-              absolute={(u) => u}
-              fallbackImg={FALLBACK}
-              formatPEN={(n) => `S/ ${Number(n || 0).toFixed(2)}`}
-            />
-          </div>
-        ))}
+        {combos.map((co, idx) => {
+          const isMenu = normalizeNoAccents(co?.nombre) === "menu";
+          const isPriority = isMenu || idx === 0;
+
+          return (
+            <div
+              key={co.id}
+              className="
+                combo-item shrink-0 snap-start
+                min-w-[88%] sm:min-w-[70%] max-[360px]:min-w-[92%]
+              "
+            >
+              <ComboCard
+                combo={co}
+                onChoose={() => onOpenCombo(co.id)}
+                absolute={(u) => buildImg(u)}
+                fallbackImg={FALLBACK}
+                formatPEN={(n) => `S/ ${Number(n || 0).toFixed(2)}`}
+                priority={isPriority}
+                optimizeImages={true}
+              />
+            </div>
+          );
+        })}
         <div className="shrink-0 w-2" aria-hidden />
       </div>
 
@@ -307,17 +335,24 @@ const ComboGrid = ({ combos, onOpenCombo }) => {
   if (combos.length === 0) return null;
   return (
     <div className="hidden md:grid md:gap-3 lg:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 animate-fadeInUp">
-      {combos.map((co) => (
-        <CategoryTile
-          key={co.id}
-          title={co.nombre}
-          subtitle={co?.descripcion || "Elige 1 entrada + 1 plato"}
-          image={co.cover_url}
-          fallback={FALLBACK}
-          onClick={() => onOpenCombo(co.id)}
-          className="tile-hover"
-        />
-      ))}
+      {combos.map((co, idx) => {
+        const isMenu = normalizeNoAccents(co?.nombre) === "menu";
+        const isPriority = isMenu || idx === 0;
+
+        return (
+          <CategoryTile
+            key={co.id}
+            title={co.nombre}
+            subtitle={co?.descripcion || "Elige 1 entrada + 1 plato"}
+            image={co.cover_url}
+            fallback={FALLBACK}
+            onClick={() => onOpenCombo(co.id)}
+            className="tile-hover"
+            priority={isPriority}
+            optimizeImages={true}
+          />
+        );
+      })}
     </div>
   );
 };
@@ -346,25 +381,33 @@ const CategoryGrid = ({ categories, loading, error, onOpenCategory }) => {
   if (!categories.length) {
     return <EmptyState>No hay categorías disponibles por ahora.</EmptyState>;
   }
+
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 animate-fadeInUp">
-      {categories.map((c) => (
-        <CategoryTile
-          key={c.id ?? `cat-${c.nombre}`}
-          title={c.nombre}
-          subtitle={
-            typeof c.items_count === "number"
-              ? `${c.items_count} items`
-              : Array.isArray(c.items)
-              ? `${c.items.length} items`
-              : undefined
-          }
-          image={c.cover_url || FALLBACK}
-          fallback={FALLBACK}
-          onClick={() => c.id != null && onOpenCategory(c.id)}
-          className="tile-hover"
-        />
-      ))}
+      {categories.map((c) => {
+        const normName = normalizeNoAccents(c.nombre);
+        const isMenu = normName === "menu";
+
+        return (
+          <CategoryTile
+            key={c.id ?? `cat-${c.nombre}`}
+            title={c.nombre}
+            subtitle={
+              typeof c.items_count === "number"
+                ? `${c.items_count} items`
+                : Array.isArray(c.items)
+                ? `${c.items.length} items`
+                : undefined
+            }
+            image={c.cover_url}
+            fallback={FALLBACK}
+            onClick={() => c.id != null && onOpenCategory(c.id)}
+            className="tile-hover"
+            priority={isMenu}
+            optimizeImages={true}
+          />
+        );
+      })}
     </div>
   );
 };
@@ -407,16 +450,14 @@ export default function Home() {
 
   const [q, setQ] = useState("");
 
-  const norm = (s) =>
-    String(s || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "");
-
   const filteredCombos = useMemo(
     () =>
       q.trim()
-        ? combos.filter((x) => norm(x?.nombre).includes(norm(q)))
+        ? combos.filter((x) =>
+            normalizeNoAccents(x?.nombre).includes(
+              normalizeNoAccents(q)
+            )
+          )
         : combos,
     [combos, q]
   );
@@ -424,13 +465,18 @@ export default function Home() {
   const filteredCats = useMemo(
     () =>
       q.trim()
-        ? categories.filter((x) => norm(x?.nombre).includes(norm(q)))
+        ? categories.filter((x) =>
+            normalizeNoAccents(x?.nombre).includes(
+              normalizeNoAccents(q)
+            )
+          )
         : categories,
     [categories, q]
   );
 
   const openCombo = (id) => nav(`/combo?comboId=${id}${qs}`);
-  const openCategory = (id) => nav(`/categoria/${id}${window.location.search}`);
+  const openCategory = (id) =>
+    nav(`/categoria/${id}${window.location.search}`);
 
   return (
     <div
@@ -439,8 +485,8 @@ export default function Home() {
         bg-appbg bg-gradient-to-b from-[#fdf5ec] via-[#fdfdfd] to-[#f3f4f6]
         text-neutral-900
       "
-      // deja espacio si está activo el CartBar global
-      style={{ paddingBottom: "var(--cart-bar-h, 0px)" }}
+      /* Importante: sin padding-bottom dinámico para que no aparezca el hueco
+         cuando se muestra el carrito flotante */
     >
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-6 pb-4">
         <RestaurantHeader
@@ -473,7 +519,6 @@ export default function Home() {
           />
         </section>
 
-        {/* FOOTER COMPACTO */}
         <BusinessFooter
           name={restaurantName}
           address={restaurantAddress}

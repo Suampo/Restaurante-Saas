@@ -1,8 +1,6 @@
 import React from "react";
 import { Eye, EyeOff, Pencil, Trash2, Tag } from "lucide-react";
-import { proxyImg } from "../utils/imageProxy";
-
-const FALLBACK = "/no-image.png";
+import ApiImage from "./ApiImage";
 
 export default function MenuCard({
   item,
@@ -13,24 +11,18 @@ export default function MenuCard({
 }) {
   const isInactive = item.activo === false;
 
-  const src = item.imagen_url
-    ? proxyImg(item.imagen_url, 400, 300)
-    : FALLBACK;
-
   return (
     <div className="group flex h-full flex-col overflow-hidden rounded-2xl bg-white/70 shadow-lg shadow-zinc-200/50 backdrop-blur-lg ring-1 ring-black/5 transition-shadow duration-300 hover:shadow-xl">
       {/* --- Contenedor de Imagen --- */}
       <div className="relative aspect-[4/3] w-full overflow-hidden">
-        <img
-          src={src}
-          onError={(e) => {
-            e.currentTarget.src = FALLBACK;
-          }}
+        <ApiImage
+          url={item.imagen_url}
           alt={item.nombre}
+          width={400}
+          height={300}
           className={`h-full w-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-105 ${
             isInactive ? "grayscale" : ""
           }`}
-          loading="lazy"
         />
         {isInactive && (
           <>
