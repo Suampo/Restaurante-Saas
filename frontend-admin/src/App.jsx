@@ -1,23 +1,25 @@
 // src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, lazy } from "react";
 import RequireRole from "./components/RequireRole";
 
-// Layouts y páginas
+// Layouts y componentes que se usan siempre (no lazy)
 import Sidebar from "./components/SideBar";
-import Dashboard from "./pages/Dashboard";
-import Mesas from "./pages/Mesas";
-import Menu from "./pages/Menu";
-import Pedidos from "./pages/Pedidos";
-import Configuracion from "./pages/Configuracion";
-import Login from "./pages/Login";
-import Inventario from "./pages/Inventario";
-import Reportes from "./pages/Reportes";
-import Trabajadores from "./pages/admin/Trabajadores";
-import AdminMovimientosEfectivo from "./pages/AdminMovimientosEfectivo";
-import CobroEfectivo from "./pages/CobroEfectivo";
 import MozoLayout from "./layouts/MozoLayout";
-import Facturacion from "./pages/Facturacion";
+
+/** ========= PÁGINAS LAZY ========= **/
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Mesas = lazy(() => import("./pages/Mesas"));
+const Menu = lazy(() => import("./pages/Menu"));
+const Pedidos = lazy(() => import("./pages/Pedidos"));
+const Configuracion = lazy(() => import("./pages/Configuracion"));
+const Login = lazy(() => import("./pages/Login"));
+const Inventario = lazy(() => import("./pages/Inventario"));
+const Reportes = lazy(() => import("./pages/Reportes"));
+const Trabajadores = lazy(() => import("./pages/admin/Trabajadores"));
+const AdminMovimientosEfectivo = lazy(() => import("./pages/AdminMovimientosEfectivo"));
+const CobroEfectivo = lazy(() => import("./pages/CobroEfectivo"));
+const Facturacion = lazy(() => import("./pages/Facturacion"));
 
 function AppLayout() {
   const [open, setOpen] = useState(false);
@@ -66,44 +68,57 @@ function NotFound() {
   );
 }
 
+function FullPageLoader() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-green-500" />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Público: login único (admin y staff) */}
-        <Route path="/login" element={<Login />} />
-        {/* Alias opcional */}
-        <Route path="/mozo/login" element={<Login />} />
+      {/* 👇 Todo lo que depende de páginas va dentro de Suspense */}
+      <Suspense fallback={<FullPageLoader />}>
+        <Routes>
+          {/* Público: login único (admin y staff) */}
+          <Route path="/login" element={<Login />} />
+          {/* Alias opcional */}
+          <Route path="/mozo/login" element={<Login />} />
 
-        {/* ===== ADMIN (owner|admin) ===== */}
-        <Route element={<RequireRole allow={['admin','owner']} />}>
-          <Route element={<AppLayout />}>
-            <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="mesas" element={<Mesas />} />
-            <Route path="menu" element={<Menu />} />
-            <Route path="pedidos" element={<Pedidos />} />
-            <Route path="inventario" element={<Inventario />} />
-            <Route path="reportes" element={<Reportes />} />
-            <Route path="configuracion" element={<Configuracion />} />
-            <Route path="admin/movimientos-efectivo" element={<AdminMovimientosEfectivo />} />
-            <Route path="admin/trabajadores" element={<Trabajadores />} />
-            <Route path="/admin/facturacion" element={<Facturacion />} />
-
+          {/* ===== ADMIN (owner|admin) ===== */}
+          <Route element={<RequireRole allow={["admin", "owner"]} />}>
+            <Route element={<AppLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="mesas" element={<Mesas />} />
+              <Route path="menu" element={<Menu />} />
+              <Route path="pedidos" element={<Pedidos />} />
+              <Route path="inventario" element={<Inventario />} />
+              <Route path="reportes" element={<Reportes />} />
+              <Route path="configuracion" element={<Configuracion />} />
+              <Route
+                path="admin/movimientos-efectivo"
+                element={<AdminMovimientosEfectivo />}
+              />
+              <Route path="admin/trabajadores" element={<Trabajadores />} />
+              {/* Dejas esta ruta absoluta tal como la tenías */}
+              <Route path="/admin/facturacion" element={<Facturacion />} />
+            </Route>
           </Route>
-        </Route>
 
-        {/* ===== MOZO (staff + admin/owner opcional) ===== */}
-        <Route element={<RequireRole allow={['staff','admin','owner']} />}>
-          <Route element={<MozoLayout />}>
-            {/* Puedes dejarla absoluta o relativa; aquí relativa al layout */}
-            <Route path="/mozo/cobro-efectivo" element={<CobroEfectivo />} />
+          {/* ===== MOZO (staff + admin/owner opcional) ===== */}
+          <Route element={<RequireRole allow={["staff", "admin", "owner"]} />}>
+            <Route element={<MozoLayout />}>
+              <Route path="/mozo/cobro-efectivo" element={<CobroEfectivo />} />
+            </Route>
           </Route>
-        </Route>
 
-        {/* 404 */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          {/* 404 */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

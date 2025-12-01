@@ -6,8 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
 
+    <!-- Descripción para SEO + snippet -->
+    <meta
+      name="description"
+      content="MikhunApp Cliente: haz tu pedido desde la mesa, descubre el menú, combos y paga de forma rápida y segura."
+    />
+
+    <!-- Preconnect a fuentes -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Preconnect a tu API de pedidos (mejora LCP ~300 ms) -->
+    <link rel="preconnect" href="https://api-pedidos.mikhunappfood.com" />
+    <link rel="dns-prefetch" href="https://api-pedidos.mikhunappfood.com" />
+
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap"
       rel="stylesheet"
@@ -18,10 +30,7 @@
   <body class="antialiased">
     <div id="root"></div>
 
-    <!-- ⚠️ Eliminado: el SDK JS v2 lo cargamos dinámicamente cuando haga falta
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
-    -->
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <!-- Solo el bundle de Vite. El SDK de MP v2 se cargará de forma dinámica en BillingModal/Yape -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

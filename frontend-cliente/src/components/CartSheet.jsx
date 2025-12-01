@@ -1,5 +1,11 @@
 // src/components/CartSheet.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMenuPublic } from "../hooks/useMenuPublic";
 import { FALLBACK_IMG, absolute as makeAbs } from "../lib/ui";
 
@@ -12,6 +18,8 @@ const KEYWORDS = {
   acomp: ["acompan", "acompa", "acomp", "guarn", "side"],
   drinks: ["bebida", "gaseosa", "refresco", "drink"],
 };
+
+const MAX_SUGGESTIONS_PER_GROUP = 8; // PERF: no traer 100 extras en mobile
 
 function resolveImgSrc(absolute, item, fallbackImg) {
   const candidates = [
@@ -49,7 +57,7 @@ const CartIcon = (p) => (
   </svg>
 );
 
-export default function CartSheet({
+function CartSheetInner({
   open,
   onClose,
   cart,
@@ -62,14 +70,20 @@ export default function CartSheet({
   onPay,
 }) {
   // formateador seguro
-  const fmt = (value) =>
-    formatPEN
-      ? formatPEN(value)
-      : `S/ ${Number(value || 0).toFixed(2)}`;
+  const fmt = useCallback(
+    (value) =>
+      formatPEN
+        ? formatPEN(value)
+        : `S/ ${Number(value || 0).toFixed(2)}`,
+    [formatPEN]
+  );
 
   /* ===== contexto (sugerencias) ===== */
   const { categories = [], menuAll: menuCtxAll, apiBase } = useMenuPublic();
-  const absolute = absProp || ((u) => makeAbs(apiBase, u));
+  const absolute = useCallback(
+    absProp || ((u) => makeAbs(apiBase, u)),
+    [absProp, apiBase]
+  );
 
   const globalMenu = useMemo(() => {
     if (Array.isArray(menuCtxAll) && menuCtxAll.length) return menuCtxAll;
@@ -109,6 +123,7 @@ export default function CartSheet({
     const pick = (idSet) =>
       globalMenu
         .filter((m) => idSet.has(m?.categoria_id) && m?.activo !== false)
+        .slice(0, MAX_SUGGESTIONS_PER_GROUP)
         .map(toOpt);
 
     const extras = pick(catIdsByKey.extras);
@@ -137,7 +152,7 @@ export default function CartSheet({
     return out;
   }, [globalMenu, catIdsByKey, absolute]);
 
-  const addSuggestion = (opt) => {
+  const addSuggestion = useCallback((opt) => {
     window.dispatchEvent(
       new CustomEvent("cart:add", {
         detail: {
@@ -151,7 +166,7 @@ export default function CartSheet({
         },
       })
     );
-  };
+  }, []);
 
   /* ===== estado / animaciones ===== */
   const [visible, setVisible] = useState(open);
@@ -160,6 +175,11 @@ export default function CartSheet({
   const startY = useRef(0);
   const deltaY = useRef(0);
   const dragging = useRef(false);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // abrir/cerrar + bloquear scroll body
   useEffect(() => {
@@ -170,7 +190,7 @@ export default function CartSheet({
       document.body.style.overflow = "hidden";
 
       const onKey = (e) => {
-        if (e.key === "Escape") onClose?.();
+        if (e.key === "Escape") onCloseRef.current?.();
       };
       window.addEventListener("keydown", onKey);
 
@@ -183,54 +203,71 @@ export default function CartSheet({
       const t = setTimeout(() => {
         setState("closed");
         setVisible(false);
-      }, 260);
+      }, 220);
       return () => clearTimeout(t);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, visible]);
 
-  if (!visible) return null;
-  const hasItems = Array.isArray(cart) && cart.length > 0;
-
-  const onPointerDown = (e) => {
-    dragging.current = true;
-    startY.current = e.clientY || e.touches?.[0]?.clientY || 0;
-    deltaY.current = 0;
-    if (panelRef.current) {
-      panelRef.current.style.transition = "none";
-      panelRef.current.style.transform = "translateY(0px)";
-    }
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("touchmove", onPointerMove, { passive: false });
-    window.addEventListener("touchend", onPointerUp);
-  };
-
-  const onPointerMove = (e) => {
+  const onPointerMove = useCallback((e) => {
     if (!dragging.current || !panelRef.current) return;
-    const current = e.clientY || e.touches?.[0]?.clientY || 0;
-    deltaY.current = Math.max(0, current - startY.current);
+    const clientY =
+      e.clientY ??
+      (e.touches && e.touches[0] && e.touches[0].clientY) ??
+      0;
+    deltaY.current = Math.max(0, clientY - startY.current);
     const damp =
       deltaY.current < 80
         ? deltaY.current
         : 80 + (deltaY.current - 80) * 0.4;
     panelRef.current.style.transform = `translateY(${damp}px)`;
     if (e.cancelable) e.preventDefault();
-  };
+  }, []);
 
-  const onPointerUp = () => {
+  const onPointerUp = useCallback(() => {
     if (!dragging.current) return;
     dragging.current = false;
     const shouldClose = deltaY.current > 120;
+
     if (panelRef.current) {
       panelRef.current.style.transition = "";
       panelRef.current.style.removeProperty("transform");
     }
+
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
-    window.removeEventListener("touchmove", onPointerMove);
-    window.removeEventListener("touchend", onPointerUp);
-    if (shouldClose) onClose?.();
-  };
+
+    if (shouldClose) onCloseRef.current?.();
+  }, [onPointerMove]);
+
+  const onPointerDown = useCallback(
+    (e) => {
+      dragging.current = true;
+      const clientY =
+        e.clientY ??
+        (e.touches && e.touches[0] && e.touches[0].clientY) ??
+        0;
+      startY.current = clientY;
+      deltaY.current = 0;
+      if (panelRef.current) {
+        panelRef.current.style.transition = "none";
+        panelRef.current.style.transform = "translateY(0px)";
+      }
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    },
+    [onPointerMove, onPointerUp]
+  );
+
+  // Limpieza por si se desmonta en medio del drag
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [onPointerMove, onPointerUp]);
+
+  if (!visible) return null;
+  const hasItems = Array.isArray(cart) && cart.length > 0;
 
   /* ===== mínimo de compra (opcional) ===== */
   const MIN_SUBTOTAL = Number(import.meta.env.VITE_MIN_SUBTOTAL || 0);
@@ -244,9 +281,9 @@ export default function CartSheet({
       aria-modal="true"
       aria-labelledby="cart-title"
     >
-      {/* overlay */}
+      {/* overlay (sin blur en mobile) */}
       <div
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px] transition-opacity"
+        className="absolute inset-0 bg-black/55 backdrop-blur-none md:backdrop-blur-[2px] transition-opacity"
         data-state={state === "open" ? "open" : "closed"}
         onClick={onClose}
       />
@@ -259,7 +296,11 @@ export default function CartSheet({
           md:bottom-auto md:top-0 md:right-0 md:left-auto md:h-full md:max-w-md
           flex h-[92svh] flex-col
           rounded-t-[32px] md:rounded-l-[32px] md:rounded-t-none
-          bg-[#fffdf8]/95 backdrop-blur-xl shadow-[0_16px_55px_rgba(15,23,42,.45)] ring-1 ring-black/5
+          bg-[#fffdf8] md:bg-[#fffdf8]/95
+          backdrop-blur-none md:backdrop-blur-xl
+          shadow-[0_8px_24px_rgba(15,23,42,.35)] md:shadow-[0_16px_55px_rgba(15,23,42,.45)]
+          ring-1 ring-black/5
+          will-change-transform
         "
         data-state={state}
       >
@@ -268,7 +309,6 @@ export default function CartSheet({
           <div className="absolute left-1/2 top-2 -translate-x-1/2 md:hidden">
             <span
               onPointerDown={onPointerDown}
-              onTouchStart={onPointerDown}
               className="block h-1.5 w-10 rounded-full bg-neutral-300"
               aria-hidden="true"
             />
@@ -299,7 +339,7 @@ export default function CartSheet({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-neutral-200 bg-white/90 px-3 py-1.5 text-xs font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
+              className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 shadow-sm hover:bg-neutral-50 active:scale-95 transition"
               aria-label="Cerrar carrito"
             >
               Cerrar
@@ -312,7 +352,7 @@ export default function CartSheet({
           {hasItems ? (
             <div className="space-y-4">
               {/* bloque principal */}
-              <div className="rounded-[28px] bg-white/80 p-3 ring-1 ring-black/5 shadow-[0_10px_35px_rgba(15,23,42,.08)]">
+              <div className="rounded-[24px] bg-white/90 p-3 ring-1 ring-black/5 shadow-sm md:shadow-[0_10px_35px_rgba(15,23,42,.08)]">
                 {/* lista ítems */}
                 <ul className="space-y-3">
                   {cart.map((item, idx) => {
@@ -337,19 +377,20 @@ export default function CartSheet({
                         key={`cart-${idx}-${item.isCombo ? "combo" : "item"}`}
                         className="
                           group relative flex items-center gap-3 rounded-3xl
-                          bg-white/95 px-3.5 py-3
-                          shadow-[0_10px_30px_rgba(15,23,42,.14)]
-                          ring-1 ring-neutral-200
-                          hover:shadow-[0_16px_40px_rgba(15,23,42,.20)]
-                          hover:ring-emerald-200/80
-                          transition-transform duration-200
-                          hover:-translate-y-[1px]
+                          bg-white px-3.5 py-3
+                          ring-1 ring-neutral-200 shadow-sm
+                          md:shadow-[0_10px_30px_rgba(15,23,42,.14)]
+                          md:hover:shadow-[0_16px_40px_rgba(15,23,42,.20)]
+                          md:hover:-translate-y-[1px]
+                          transition-transform duration-150
                         "
                       >
                         {/* Imagen */}
                         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-neutral-100 ring-1 ring-black/5">
                           <img
                             src={imgSrc}
+                            loading="lazy"
+                            decoding="async"
                             onError={(e) => {
                               e.currentTarget.onerror = null;
                               e.currentTarget.src = fallbackImg;
@@ -395,7 +436,7 @@ export default function CartSheet({
 
                         {/* Total + controles */}
                         <div className="flex flex-col items-end justify-between gap-2 self-stretch">
-                          {/* total en pastilla oscura */}
+                          {/* total en pastilla */}
                           <div className="inline-flex items-center rounded-full bg-neutral-900 px-3 py-1 text-[11px] font-semibold tracking-tight text-white shadow-md shadow-neutral-900/30">
                             {lineTotalLabel}
                           </div>
@@ -478,19 +519,19 @@ export default function CartSheet({
                             {g.items.map((opt) => (
                               <article
                                 key={opt.id}
-                                className="relative w-[180px] shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5"
+                                className="relative w-[170px] shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5"
                               >
                                 <div className="relative">
                                   {opt.imageAbs ? (
                                     <img
                                       src={opt.imageAbs}
                                       alt={opt.name}
-                                      className="h-28 w-full object-cover"
+                                      className="h-24 w-full object-cover"
                                       loading="lazy"
                                       decoding="async"
                                     />
                                   ) : (
-                                    <div className="grid h-28 place-items-center bg-neutral-100 text-xs text-neutral-500">
+                                    <div className="grid h-24 place-items-center bg-neutral-100 text-xs text-neutral-500">
                                       Sin imagen
                                     </div>
                                   )}
@@ -549,7 +590,7 @@ export default function CartSheet({
         </div>
 
         {/* footer sticky */}
-        <div className="sticky bottom-0 z-10 border-t border-neutral-100 bg-gradient-to-t from-white via-white/95 to-white/90 backdrop-blur-sm px-4 py-3 sm:py-4 shrink-0">
+        <div className="sticky bottom-0 z-10 border-t border-neutral-100 bg-gradient-to-t from-white via-white/95 to-white/90 backdrop-blur-none md:backdrop-blur-sm px-4 py-3 sm:py-4 shrink-0">
           <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {/* Subtotal */}
             <div className="flex flex-col">
@@ -576,7 +617,7 @@ export default function CartSheet({
                   ${
                     !hasItems || (MIN_SUBTOTAL > 0 && !reachedMin)
                       ? "bg-emerald-300 cursor-not-allowed opacity-70 shadow-none"
-                      : "bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_12px_30px_rgba(16,185,129,0.45)] hover:translate-y-[1px] hover:shadow-[0_16px_40px_rgba(16,185,129,0.55)] active:translate-y-[2px]"
+                      : "bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_10px_26px_rgba(16,185,129,0.45)] hover:translate-y-[1px] hover:shadow-[0_14px_34px_rgba(16,185,129,0.55)] active:translate-y-[2px]"
                   }
                 `}
               >
@@ -599,9 +640,9 @@ export default function CartSheet({
               {MIN_SUBTOTAL > 0 && !reachedMin && (
                 <p className="text-[11px] text-neutral-500">
                   Te faltan{" "}
-                  <span className="font-semibold text-neutral-800">
-                    {fmt(missing)}
-                  </span>{" "}
+                    <span className="font-semibold text-neutral-800">
+                      {fmt(missing)}
+                    </span>{" "}
                   para completar el mínimo.
                 </p>
               )}
@@ -612,4 +653,6 @@ export default function CartSheet({
     </div>
   );
 }
-  
+
+// Memo para evitar renders innecesarios si las props no cambian
+export default React.memo(CartSheetInner);

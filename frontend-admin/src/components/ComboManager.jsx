@@ -15,7 +15,7 @@ import {
   deleteCombo,
   uploadComboCover,
 } from "../services/combosApi";
-import { proxyImg } from "../utils/imageProxy";
+import ApiImage from "./ApiImage";
 
 /* Icon, Stepper, GrupoCard, ComboCard */
 
@@ -256,17 +256,17 @@ function ComboCard({
   const hasCover =
     typeof cover_url === "string" && cover_url.trim().length > 0;
 
-  const coverSrc = hasCover ? proxyImg(cover_url, 320, 240) : null;
-
   return (
     <div className="overflow-hidden rounded-xl bg-white ring-1 ring-gray-200">
       <div className="flex items-center gap-4 p-4">
         <div className="relative h-20 w-20 flex-shrink-0">
           <div className="h-full w-full overflow-hidden rounded-lg bg-gray-100">
             {hasCover ? (
-              <img
-                src={coverSrc}
+              <ApiImage
+                url={cover_url}
                 alt={nombre}
+                width={80}
+                height={80}
                 className="h-full w-full object-cover"
               />
             ) : (

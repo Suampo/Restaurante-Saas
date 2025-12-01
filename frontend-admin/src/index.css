@@ -1,4 +1,7 @@
 /* Tailwind v4 */
+/* Fuentes Inter locales */
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/600.css";
 @import "tailwindcss";
 
 html, body, #root { height: 100%; width: 100%; }

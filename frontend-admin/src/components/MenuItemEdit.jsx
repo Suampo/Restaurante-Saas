@@ -8,7 +8,7 @@ import {
   Image as ImageIcon,
   Loader2,
 } from "lucide-react";
-import { proxyImg } from "../utils/imageProxy";
+import ApiImage from "./ApiImage";
 
 // --- Sub-componente V2 para la carga de imágenes ---
 function ImageUploader({ preview, onImageSelect, onClearImage, saving }) {
@@ -20,10 +20,8 @@ function ImageUploader({ preview, onImageSelect, onClearImage, saving }) {
     }
   };
 
-  const src =
-    preview && /^https?:\/\//i.test(preview)
-      ? proxyImg(preview, 800, 800)
-      : preview || null;
+  const hasPreview = !!preview;
+  const isRemote = hasPreview && /^https?:\/\//i.test(preview);
 
   return (
     <div className="w-full">
@@ -35,13 +33,23 @@ function ImageUploader({ preview, onImageSelect, onClearImage, saving }) {
         onDrop={handleDrop}
         className="relative aspect-square w-full rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 flex flex-col items-center justify-center text-center transition-colors group hover:border-green-500"
       >
-        {src ? (
+        {hasPreview ? (
           <>
-            <img
-              src={src}
-              alt="Vista previa"
-              className="absolute inset-0 h-full w-full object-cover rounded-xl"
-            />
+            {isRemote ? (
+              <ApiImage
+                url={preview}
+                alt="Vista previa"
+                width={800}
+                height={800}
+                className="absolute inset-0 h-full w-full object-cover rounded-xl"
+              />
+            ) : (
+              <img
+                src={preview}
+                alt="Vista previa"
+                className="absolute inset-0 h-full w-full object-cover rounded-xl"
+              />
+            )}
             <div className="absolute inset-0 bg-black/40 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <span className="text-white font-semibold">
                 Cambiar imagen

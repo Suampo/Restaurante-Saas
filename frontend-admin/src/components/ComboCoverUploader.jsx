@@ -1,7 +1,7 @@
 // src/components/ComboCoverUploader.jsx
 import { useRef, useState } from "react";
 import { uploadComboCover } from "../services/combosApi";
-import { proxyImg } from "../utils/imageProxy";
+import ApiImage from "./ApiImage";
 
 const FALLBACK =
   "data:image/svg+xml;utf8," +
@@ -47,20 +47,28 @@ export default function ComboCoverUploader({
   };
 
   const display = preview || FALLBACK;
-  const imgSrc =
-    display.startsWith("http") && !display.includes("data:")
-      ? proxyImg(display, 320, 240)
-      : display;
+  const isRemote =
+    /^https?:\/\//i.test(display) && !display.startsWith("data:");
 
   return (
     <div className="space-y-2">
       <div className="w-full aspect-[4/3] overflow-hidden rounded-xl border bg-neutral-50">
-        <img
-          src={imgSrc}
-          alt="Portada del combo"
-          className="h-full w-full object-cover"
-          onError={(e) => (e.currentTarget.src = FALLBACK)}
-        />
+        {isRemote ? (
+          <ApiImage
+            url={display}
+            alt="Portada del combo"
+            width={320}
+            height={240}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <img
+            src={display}
+            alt="Portada del combo"
+            className="h-full w-full object-cover"
+            onError={(e) => (e.currentTarget.src = FALLBACK)}
+          />
+        )}
       </div>
 
       <div className="flex items-center gap-2">

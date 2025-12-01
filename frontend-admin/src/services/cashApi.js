@@ -43,11 +43,13 @@ export function clearAuthIdentity() { setAuthIdentity({}); }
 /**
  * Interceptor de request:
  * - Añade Authorization si existe token (incluye dbToken).
+ * - Añade x-restaurant-id desde local/session.
  * - Resuelve CSRF para /api/split y /api/checkout.
- * - No envía headers custom (x-app-user, etc.).
  */
 FACT_API.interceptors.request.use(async (config) => {
-  // MUY IMPORTANTE: incluir dbToken, además de variantes comunes
+  const headers = config.headers || (config.headers = {});
+
+  // === JWT: mozo/admin/dbToken ===
   const bearer =
     localStorage.getItem("token") ||
     sessionStorage.getItem("token") ||
@@ -56,11 +58,25 @@ FACT_API.interceptors.request.use(async (config) => {
     localStorage.getItem("dbToken") ||
     sessionStorage.getItem("dbToken");
 
-  if (bearer) config.headers.Authorization = `Bearer ${bearer}`;
+  if (bearer && !headers.Authorization) {
+    headers.Authorization = `Bearer ${bearer}`;
+  }
 
-  // CSRF sólo para split/checkout
+  // === x-restaurant-id (clave para auth de /api/split) ===
+  const rid =
+    headers["x-restaurant-id"] ||
+    localStorage.getItem("restaurant_id") ||
+    sessionStorage.getItem("restaurant_id");
+
+  if (rid) {
+    headers["x-restaurant-id"] = String(rid);
+  }
+
+  // === CSRF solo para split/checkout ===
   const url = typeof config.url === "string" ? config.url : "";
-  const needsCsrf = url.startsWith(SPLIT_BASE) || url.startsWith("/api/checkout");
+  const needsCsrf =
+    url.startsWith(SPLIT_BASE) || url.startsWith("/api/checkout");
+
   if (needsCsrf) {
     let token = getCookie("csrf_token");
     if (!token && !gotCsrf) {
@@ -68,7 +84,7 @@ FACT_API.interceptors.request.use(async (config) => {
       token = getCookie("csrf_token");
       gotCsrf = true;
     }
-    if (token) config.headers["x-csrf-token"] = token;
+    if (token) headers["x-csrf-token"] = token;
   }
 
   return config;
@@ -76,14 +92,22 @@ FACT_API.interceptors.request.use(async (config) => {
 
 /**
  * Interceptor de response:
- * - Si el backend devuelve 403 por CSRF inválido/ausente, reintenta tras pedir /api/csrf.
+ * - Si el backend devuelve 403 por CSRF inválido, reintenta tras pedir /api/csrf.
  */
 FACT_API.interceptors.response.use(
   (r) => r,
   async (error) => {
     const cfg = error?.config || {};
     const status = error?.response?.status;
-    const isCsrf = status === 403 && !cfg.__retriedCsrf;
+    const msg = error?.response?.data?.error || "";
+
+    // Solo consideramos reintento si el backend dice algo de CSRF
+    const isCsrf =
+      status === 403 &&
+      !cfg.__retriedCsrf &&
+      typeof msg === "string" &&
+      msg.toLowerCase().includes("csrf");
+
     if (isCsrf) {
       try {
         await axios.get(`${FACT_BASE}/api/csrf`, { withCredentials: true });
@@ -143,15 +167,22 @@ export async function listarMovimientosEfectivo({ start, end, estado, userId } =
 }
 
 // ----------------- AUTH MOZO :5000 (opcional) -----------------
-// Si quieres login de mozo propio en :5000
 export async function loginMozo({ restaurantId, pin }) {
-  const { data } = await FACT_API.post("/api/auth/login-mozo", { restaurantId, pin }, { withCredentials: true });
+  const { data } = await FACT_API.post(
+    "/api/auth/login-mozo",
+    { restaurantId, pin },
+    { withCredentials: true }
+  );
   if (!data?.ok || !data?.token) throw new Error("Login mozo falló");
+
   // Guardamos para que el interceptor lo mande como Authorization
   localStorage.setItem("token", data.token);
+
+  // Guardar restaurant_id para x-restaurant-id
   if (data?.user?.restaurantId != null) {
     localStorage.setItem("restaurant_id", String(data.user.restaurantId));
   }
+
   return data;
 }
 

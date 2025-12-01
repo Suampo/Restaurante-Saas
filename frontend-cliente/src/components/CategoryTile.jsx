@@ -76,6 +76,7 @@ function CategoryTile({
   const titleId = useId();
   const subId = useId();
 
+  // 👇 ya correcto: atributo en minúsculas
   const priorityAttrs = priority ? { fetchpriority: "high" } : {};
 
   const disabledClasses = disabled
@@ -121,7 +122,9 @@ function CategoryTile({
             className={[
               "absolute inset-0 h-full w-full object-cover",
               "transition duration-500 ease-out",
-              loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-[1.02] blur-sm",
+              loaded
+                ? "opacity-100 scale-100 blur-0"
+                : "opacity-0 scale-[1.02] blur-sm",
             ].join(" ")}
             onLoad={() => setLoaded(true)}
             onError={() => {
@@ -136,27 +139,27 @@ function CategoryTile({
           </div>
         )}
 
-        {/* Degradado oscuro inferior (texto sobre foto) */}
+        {/* Degradado oscuro inferior */}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent" />
 
         {/* Borde suave */}
         <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-black/5" />
 
-        {/* Badge opcional arriba a la izquierda */}
+        {/* Badge opcional */}
         {badge && (
           <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[11px] font-medium text-neutral-900 shadow">
             {badge}
           </div>
         )}
 
-        {/* Contador opcional arriba a la derecha */}
+        {/* Contador opcional */}
         {typeof count === "number" && (
           <div className="absolute right-2 top-2 grid h-7 min-w-[28px] place-items-center rounded-full bg-emerald-600 px-1 text-[11px] font-semibold text-white shadow">
             {count > 99 ? "99+" : count}
           </div>
         )}
 
-        {/* Texto + chevron abajo, sobre la imagen */}
+        {/* Texto + chevron abajo */}
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-between px-3 pb-2 pt-3">
           <div className="min-w-0">
             <div
