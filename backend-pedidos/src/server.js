@@ -127,21 +127,29 @@ app.use(
 app.use(cookieParser());
 
 /**
- * Siembra CSRF si falta (cookie legible por el front).
+ * Siembra CSRF si falta (cookie legible por el front) y
+ * deja el valor en req.csrf_token_seeded para esta request.
  */
 app.use((req, res, next) => {
-  if (!req.cookies?.csrf_token) {
+  const existing = req.cookies?.csrf_token;
+
+  if (!existing) {
     const token = crypto.randomBytes(24).toString("hex");
     res.cookie("csrf_token", token, {
-      httpOnly: false,
+      httpOnly: false,           // JS del front NO puede leerla por dominio, pero no importa
       sameSite: "lax",
       secure: isProd,
       path: "/api",
       maxAge: 1000 * 60 * 60 * 12,
     });
+    req.csrf_token_seeded = token;
+  } else {
+    req.csrf_token_seeded = existing;
   }
+
   next();
 });
+
 
 /* ===== Body parsers ===== */
 app.use(compression());

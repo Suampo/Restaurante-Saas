@@ -12,8 +12,24 @@ const router = Router();
 
 router.get("/health", (_req, res) => res.json({ ok: true }));
 
-// Forzar/sembrar CSRF si falta (compat)
-router.get("/csrf", (_req, res) => res.status(204).end());
+// src/routes/sessionRoutes.js
+
+// Forzar/sembrar CSRF si falta y devolver el token al frontend
+router.get("/csrf", (req, res) => {
+  const token =
+    req.csrf_token_seeded || // lo puso el middleware de server.js
+    (req.cookies && req.cookies.csrf_token) ||
+    null;
+
+  if (!token) {
+    return res.status(500).json({ error: "CSRF no inicializado" });
+  }
+
+  // La cookie ya fue seteada por el middleware global.
+  // Aquí SOLO devolvemos el valor para que el frontend lo mande en x-csrf-token.
+  res.json({ csrfToken: token });
+});
+
 
 // Refresca dbToken desde cookie httpOnly
 router.post("/session/refresh", refreshFromCookie);
