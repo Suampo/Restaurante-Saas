@@ -44,7 +44,7 @@ const corsOptions = {
     "X-Device-Id",
     "X-meli-session-id",
 
-    // 👇 NECESARIOS PARA TU ERROR
+    // Headers que el navegador suele enviar en preflight/peticiones
     "Cache-Control",
     "Pragma",
     "Accept",
@@ -104,6 +104,14 @@ app.use(morgan("dev"));
 
 /* ===== PING ===== */
 app.get("/", (_, res) => res.send("backend-pasarela OK"));
+
+/* ===== CSRF dummy para PSP =====
+   Este backend NO usa CSRF basado en cookie.
+   Solo devolvemos 204 para que ensureCsrfCookie (psp) no falle.
+================================================================ */
+app.get("/api/csrf", (req, res) => {
+  res.status(204).end();
+});
 
 /* ===== DEBUG: token del .env (no multitenant) ===== */
 app.get("/__mpdebug", (_, res) => {
