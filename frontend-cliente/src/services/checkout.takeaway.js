@@ -1,6 +1,5 @@
 // src/services/checkout.takeaway.js
 
-// Base del backend de pedidos (API pública)
 const API_BASE = (
   import.meta.env.VITE_API_PEDIDOS ||
   import.meta.env.VITE_API_URL ||
@@ -10,31 +9,11 @@ const API_BASE = (
 // ===== CSRF helpers (double-submit cookie) =====
 let csrfTokenPedidos = null;
 
-function getCookie(name) {
-  if (typeof document === "undefined") return null;
-  const m = document.cookie.match(
-    new RegExp("(^|;\\s*)" + name + "=([^;]+)")
-  );
-  return m ? decodeURIComponent(m[2]) : null;
-}
-
-function getCsrfFromCookies() {
-  return (
-    getCookie("csrf_token") ||
-    getCookie("XSRF-TOKEN") ||
-    getCookie("_csrf") ||
-    null
-  );
-}
-
 function withCsrf(headers = {}) {
-  const token = csrfTokenPedidos || getCsrfFromCookies();
-  return token
-    ? { ...headers, "x-csrf-token": token }
-    : headers;
+  if (!csrfTokenPedidos) return headers;
+  return { ...headers, "x-csrf-token": csrfTokenPedidos };
 }
 
-// Pide /api/csrf al backend de pedidos y guarda el token retornado
 export async function ensureCsrfCookiePedidos() {
   try {
     const res = await fetch(`${API_BASE}/api/csrf`, {
@@ -48,7 +27,6 @@ export async function ensureCsrfCookiePedidos() {
       return;
     }
 
-    // El backend debe devolver algo como: { csrfToken: "..." }
     let data = null;
     try {
       data = await res.json();
@@ -65,12 +43,8 @@ export async function ensureCsrfCookiePedidos() {
 
     if (t && typeof t === "string") {
       csrfTokenPedidos = t;
-    }
-
-    // Fallback por si algún día solo lo expones en cookie legible
-    if (!csrfTokenPedidos) {
-      const fromCookie = getCsrfFromCookies();
-      if (fromCookie) csrfTokenPedidos = fromCookie;
+    } else {
+      console.warn("ensureCsrfCookiePedidos: respuesta sin token usable", data);
     }
   } catch (e) {
     console.error("checkout.takeaway ensureCsrfCookiePedidos:", e);
@@ -80,17 +54,12 @@ export async function ensureCsrfCookiePedidos() {
 const api = (p) =>
   `${API_BASE}${p.startsWith("/") ? p : `/${p}`}`;
 
-/**
- * Crea SIEMPRE un intent nuevo para LLEVAR.
- * IMPORTANTE: NO enviar mesaId, el backend lo guarda NULL por constraint.
- */
 export async function crearIntentTakeaway({
   restaurantId,
   amount,
   cart = [],
   note = null,
 }) {
-  // Siempre refrescamos el token antes de hacer POST al backend de pedidos
   await ensureCsrfCookiePedidos();
 
   const res = await fetch(api("/api/takeaway/checkout-intents"), {
@@ -100,7 +69,7 @@ export async function crearIntentTakeaway({
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
     }),
-    body: JSON.stringify({ restaurantId, amount, cart, note }), // sin mesaId
+    body: JSON.stringify({ restaurantId, amount, cart, note }),
   });
 
   if (!res.ok) {
