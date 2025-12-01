@@ -1,5 +1,6 @@
 // src/routes/sessionRoutes.js
 import { Router } from "express";
+import crypto from "crypto";
 import {
   setSessionFromToken,
   validateCookie,
@@ -10,26 +11,26 @@ import {
 
 const router = Router();
 
+const IS_PROD =
+  String(process.env.NODE_ENV || "development").toLowerCase() === "production";
+
 router.get("/health", (_req, res) => res.json({ ok: true }));
 
-// src/routes/sessionRoutes.js
+// ✅ NUEVO: /api/csrf devuelve el token y lo setea en cookie
+router.get("/csrf", (_req, res) => {
+  const token = crypto.randomBytes(24).toString("hex");
 
-// Forzar/sembrar CSRF si falta y devolver el token al frontend
-router.get("/csrf", (req, res) => {
-  const token =
-    req.csrf_token_seeded || // lo puso el middleware de server.js
-    (req.cookies && req.cookies.csrf_token) ||
-    null;
+  // misma config que tu middleware global, pero aquí controlado
+  res.cookie("csrf_token", token, {
+    httpOnly: false,
+    sameSite: "lax",
+    secure: IS_PROD,
+    path: "/api",
+    maxAge: 1000 * 60 * 60 * 12, // 12h
+  });
 
-  if (!token) {
-    return res.status(500).json({ error: "CSRF no inicializado" });
-  }
-
-  // La cookie ya fue seteada por el middleware global.
-  // Aquí SOLO devolvemos el valor para que el frontend lo mande en x-csrf-token.
-  res.json({ csrfToken: token });
+  return res.json({ csrfToken: token });
 });
-
 
 // Refresca dbToken desde cookie httpOnly
 router.post("/session/refresh", refreshFromCookie);
