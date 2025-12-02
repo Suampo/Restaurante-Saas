@@ -59,12 +59,12 @@ const isProd = process.env.NODE_ENV === "production";
 /**
  * isProdLimits: sigue siendo true solo si estás en producción.
  * shouldBypassLimiter: solo se activa cuando:
- *   - ALLOW_LOADTEST_BYPASS=1 en el .env del servidor
- *   - la petición viene con header: x-load-test: k6
+ * - ALLOW_LOADTEST_BYPASS=1 en el .env del servidor
+ * - la petición viene con header: x-load-test: k6
  *
  * Resultado:
- *   - Clientes normales → siguen bajo rate-limit normal.
- *   - k6 con ese header → se salta el rate-limit para poder probar carga.
+ * - Clientes normales → siguen bajo rate-limit normal.
+ * - k6 con ese header → se salta el rate-limit para poder probar carga.
  */
 const isProdLimits = isProd;
 const shouldBypassLimiter = (req) =>
@@ -275,6 +275,10 @@ app.use("/api", pspPublicRoutes);
 app.use("/api/pay", payRoutes);
 app.use("/api/dev", devRoutes);
 app.use("/api/checkout", checkoutRoutes);
+
+// ✅ MOVIDO AQUÍ PARA EVITAR PROBLEMAS DE AUTH
+app.use(kdsWebhookRoutes);
+
 app.use("/api", publicMenuV2Routes); // GET /api/public/menu-v2
 app.use("/api", takeawayRoutes);
 app.use("/api", healthRoutes);
@@ -309,7 +313,7 @@ app.use("/api/combos", requireDbToken, combosRoutes);
 app.use("/api/categorias", requireDbToken, categoriaRoutes);
 app.use("/api/reportes", requireDbToken, reportesRoutes);
 app.use("/api", requireDbToken, exportRoutes);
-app.use(kdsWebhookRoutes);
+
 /* ✅ ADMIN (para “Trabajadores”) */
 app.use("/admin", requireDbToken, adminCashRoutes);
 
