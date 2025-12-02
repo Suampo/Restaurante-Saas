@@ -111,6 +111,9 @@ async function notifyPaid({ pedidoId, payment }) {
   const orderId  = payment?.order?.id ?? payment?.merchant_order_id ?? null;
   const approved = payment?.date_approved || null;
 
+  // CSRF interno para backend-facturacion (double submit cookie)
+  const csrfToken = env('INTERNAL_CSRF_TOKEN', 'internal-csrf');
+
   try {
     await axios.post(
       url,
@@ -130,7 +133,15 @@ async function notifyPaid({ pedidoId, payment }) {
         // snapshot completo para auditoría
         mp_snapshot: payment,
       },
-      { timeout: 20000, headers: { 'Content-Type': 'application/json' } },
+      {
+        timeout: 20000,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken,
+          // cookie que lee backend-facturacion (double submit cookie)
+          Cookie: `csrf_token=${encodeURIComponent(csrfToken)}`,
+        },
+      },
     );
   } catch (e) {
     console.warn('[notifyPaid] fallo:', e?.response?.status, e?.message);
@@ -183,8 +194,8 @@ router.post('/psp/mp/preferences', async (req, res) => {
         failure: `${frontendUrl}/checkout/failure`,
         pending: `${frontendUrl}/checkout/pending`,
       },
-      notification_url: buildWebhookUrl(restaurantId),
-      metadata: { sku, ...metadata, restaurantId },
+      notification_url : buildWebhookUrl(restaurantId),
+      metadata         : { sku, ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       ...(walletOnly ? { purpose: 'wallet_purchase' } : {}),
       ...(MP_STATEMENT_DESCRIPTOR
@@ -286,9 +297,9 @@ router.post(
           payment?.order?.id ?? payment?.merchant_order_id ?? null;
 
         console.log('[mp payment]', {
-          id              : String(payment.id),
-          status          : payment.status,
-          status_detail   : payment.status_detail,
+          id               : String(payment.id),
+          status           : payment.status,
+          status_detail    : payment.status_detail,
           payment_method_id: payment.payment_method_id,
           pedidoId,
           orderId,
@@ -347,8 +358,8 @@ async function handleYape(req, res) {
           (email || '').trim() ||
           `yape+${Date.now()}@example.com`,
       }, // requerido en live
-      description: description || 'Pago con Yape',
-      metadata   : { ...metadata, restaurantId },
+      description      : description || 'Pago con Yape',
+      metadata         : { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url  : notifyUrl,
       ...(MP_STATEMENT_DESCRIPTOR
