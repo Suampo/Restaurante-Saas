@@ -23,6 +23,10 @@ async function oncePerPayment(paymentId, fn) {
 
 const env = (k, def = '') => (process.env[k] ?? def).toString().trim();
 
+// Token CSRF interno para llamar a backend-facturación
+const INTERNAL_CSRF_TOKEN =
+  (process.env.INTERNAL_CSRF_TOKEN || 'internal-csrf-bridge').trim();
+
 function getURLs() {
   const port = env('PORT', '5500');
   return {
@@ -111,40 +115,43 @@ async function notifyPaid({ pedidoId, payment }) {
   const orderId  = payment?.order?.id ?? payment?.merchant_order_id ?? null;
   const approved = payment?.date_approved || null;
 
-  // CSRF interno para backend-facturacion (double submit cookie)
-  const csrfToken = env('INTERNAL_CSRF_TOKEN', 'internal-csrf');
+  const body = {
+    amount      : Number(payment?.transaction_amount || 0),
+    pasarela    : 'mercado_pago',
+    payment_id  : eventId, // compat
+    method      : payment?.payment_method_id || 'mp',
+    status      : payment?.status || null,
+
+    // claves de reconciliación
+    psp_event_id : eventId, // id del Payment
+    psp_charge_id: chargeId,
+    psp_order_id : orderId ? String(orderId) : null,
+    approved_at  : approved,
+
+    // snapshot completo para auditoría
+    mp_snapshot: payment,
+  };
+
+  const csrf = INTERNAL_CSRF_TOKEN || 'internal-csrf-bridge';
 
   try {
-    await axios.post(
-      url,
-      {
-        amount      : Number(payment?.transaction_amount || 0),
-        pasarela    : 'mercado_pago',
-        payment_id  : eventId, // compat
-        method      : payment?.payment_method_id || 'mp',
-        status      : payment?.status || null,
-
-        // claves de reconciliación
-        psp_event_id : eventId, // id del Payment
-        psp_charge_id: chargeId,
-        psp_order_id : orderId ? String(orderId) : null,
-        approved_at  : approved,
-
-        // snapshot completo para auditoría
-        mp_snapshot: payment,
+    await axios.post(url, body, {
+      timeout: 20000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrf,
+        // Cookie para que el middleware requireCsrf de facturación pase:
+        // cookie "csrf_token" = header "x-csrf-token"
+        Cookie: `csrf_token=${csrf}`,
       },
-      {
-        timeout: 20000,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken,
-          // cookie que lee backend-facturacion (double submit cookie)
-          Cookie: `csrf_token=${encodeURIComponent(csrfToken)}`,
-        },
-      },
-    );
+    });
   } catch (e) {
-    console.warn('[notifyPaid] fallo:', e?.response?.status, e?.message);
+    console.warn(
+      '[notifyPaid] fallo:',
+      e?.response?.status,
+      e?.message,
+      e?.response?.data || '',
+    );
   }
 }
 
@@ -426,11 +433,11 @@ async function handleCard(req, res) {
     const { first_name, last_name } = splitName(nameFromMeta);
 
     const body = {
-      token            : formData.token,
+      token             : formData.token,
       transaction_amount: amt,
-      installments     : Number(formData.installments || 1),
-      payment_method_id: formData.payment_method_id,
-      issuer_id        : formData.issuer_id, // recomendado
+      installments      : Number(formData.installments || 1),
+      payment_method_id : formData.payment_method_id,
+      issuer_id         : formData.issuer_id, // recomendado
       payer: {
         email         : formData?.payer?.email,
         identification: formData?.payer?.identification,
