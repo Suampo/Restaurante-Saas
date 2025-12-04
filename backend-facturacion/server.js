@@ -17,7 +17,7 @@ const pool = require("./src/db");
 // Routers
 const mozoAuthRoutes = require("./src/routes/auth.mozo");
 const splitRoutes = require("./src/routes/split.payments.js");
-
+const cashRoutes = require("./src/routes/split/cash.routes.js");
 const debugApisPeru = require("./src/routes/debug.apisperu");
 const debugCpe = require("./src/routes/debug.cpe");
 const debugPedidos = require("./src/routes/debug.pedidos");
@@ -210,9 +210,11 @@ app.use("/api", pedidos);
 // Rutas de administración (caja, facturación, etc.)
 app.use("/api/admin", adminCashRoutes);
 app.use("/api/admin", adminFacturacionRoutes)
-
-// Split (efectivo, saldos, etc.) — protegido con CSRF + rol
+// Split pagos mixtos/tarjeta
 app.use("/api/split", requireCsrf, requireWaiter, splitRoutes);
+
+// ⚠️ Split efectivo (archivo cash.routes.js)
+app.use("/api/split", requireCsrf, requireWaiter, cashRoutes);
 
 
 // Checkout (pasarela) — protegido con CSRF

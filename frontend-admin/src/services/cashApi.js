@@ -1,11 +1,9 @@
 // src/services/cashApi.js
 import axios from "axios";
 
-// ---- BASES ----
-// Prioridad:
-// 1) VITE_FACT_API_URL (ideal)
-// 2) En dev, localhost:5000
-// 3) En prod, dominio fijo api-facturacion.mikhunappfood.com
+// ======================================================
+// 🔧 BASE URLS
+// ======================================================
 const FACT_BASE = import.meta.env.VITE_FACT_API_URL
   ? import.meta.env.VITE_FACT_API_URL.replace(/\/$/, "")
   : (import.meta.env.DEV
@@ -13,66 +11,55 @@ const FACT_BASE = import.meta.env.VITE_FACT_API_URL
       : "https://api-facturacion.mikhunappfood.com"
     );
 
-const SPLIT_BASE = "/api/split";   // rutas de split
-const ADMIN_BASE = "/api/admin";   // rutas admin
+const SPLIT_BASE = "/api/split";
+const ADMIN_BASE = "/api/admin";
 
 export const FACT_API = axios.create({
   baseURL: FACT_BASE,
-  withCredentials: true,   // cookies CSRF/sesión
+  withCredentials: true,
   timeout: 20000,
 });
 
 let gotCsrf = false;
 
-// ---- utils ----
+// ======================================================
+// 🍪 UTILIDAD PARA COOKIES
+// ======================================================
 function getCookie(name) {
   if (typeof document === "undefined") return null;
   const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
   return m ? decodeURIComponent(m[2]) : null;
 }
 
-// Identidad opcional (solo para UI + headers)
+// ======================================================
+// 👤 IDENTIDAD DEL USUARIO (MOZO / ADMIN)
+// ======================================================
 export function setAuthIdentity({ email, id, role, restaurantId } = {}) {
-  if (email) {
-    localStorage.setItem("user_email", email);
-  } else {
-    localStorage.removeItem("user_email");
-  }
+  if (email) localStorage.setItem("user_email", email);
+  else localStorage.removeItem("user_email");
 
-  if (id) {
-    localStorage.setItem("user_id", id);
-  } else {
-    localStorage.removeItem("user_id");
-  }
+  if (id) localStorage.setItem("user_id", id);
+  else localStorage.removeItem("user_id");
 
-  if (role) {
-    localStorage.setItem("user_role", role);
-  } else {
-    localStorage.removeItem("user_role");
-  }
+  if (role) localStorage.setItem("user_role", role);
+  else localStorage.removeItem("user_role");
 
-  if (restaurantId != null) {
+  if (restaurantId != null)
     localStorage.setItem("restaurant_id", String(restaurantId));
-  } else {
-    localStorage.removeItem("restaurant_id");
-  }
+  else localStorage.removeItem("restaurant_id");
 }
 
 export function clearAuthIdentity() {
   setAuthIdentity({});
 }
 
-/**
- * Interceptor de request:
- * - Añade Authorization si existe token (incluye dbToken).
- * - Añade x-restaurant-id desde local/session.
- * - Añade x-app-user / x-app-user-id desde local/session.
- * - Resuelve CSRF para /api/split y /api/checkout.
- */
+// ======================================================
+// 🔐 INTERCEPTOR: HEADERS + CSRF
+// ======================================================
 FACT_API.interceptors.request.use(async (config) => {
   const headers = config.headers || (config.headers = {});
 
-  // === JWT: mozo/admin/dbToken ===
+  // ====== Authorization ======
   const bearer =
     localStorage.getItem("token") ||
     sessionStorage.getItem("token") ||
@@ -85,17 +72,15 @@ FACT_API.interceptors.request.use(async (config) => {
     headers.Authorization = `Bearer ${bearer}`;
   }
 
-  // === x-restaurant-id (clave para auth de /api/split) ===
+  // ===== x-restaurant-id =====
   const rid =
     headers["x-restaurant-id"] ||
     localStorage.getItem("restaurant_id") ||
     sessionStorage.getItem("restaurant_id");
 
-  if (rid) {
-    headers["x-restaurant-id"] = String(rid);
-  }
+  if (rid) headers["x-restaurant-id"] = String(rid);
 
-  // === Identidad del usuario (mozo/admin) para firmar pagos ===
+  // ===== Identidad del usuario =====
   const email =
     headers["x-app-user"] ||
     localStorage.getItem("user_email") ||
@@ -107,9 +92,9 @@ FACT_API.interceptors.request.use(async (config) => {
     sessionStorage.getItem("user_id");
 
   if (email) headers["x-app-user"] = email;
-  if (uid)   headers["x-app-user-id"] = uid;
+  if (uid) headers["x-app-user-id"] = uid;
 
-  // === CSRF solo para split/checkout ===
+  // ===== CSRF solo para split/checkout =====
   const url = typeof config.url === "string" ? config.url : "";
   const needsCsrf =
     url.startsWith(SPLIT_BASE) || url.startsWith("/api/checkout");
@@ -127,10 +112,9 @@ FACT_API.interceptors.request.use(async (config) => {
   return config;
 });
 
-/**
- * Interceptor de response:
- * - Si el backend devuelve 403 por CSRF inválido, reintenta tras pedir /api/csrf.
- */
+// ======================================================
+// 🔄 INTERCEPTOR DE RESPUESTA (RETRY CSRF)
+// ======================================================
 FACT_API.interceptors.response.use(
   (r) => r,
   async (error) => {
@@ -138,7 +122,6 @@ FACT_API.interceptors.response.use(
     const status = error?.response?.status;
     const msg = error?.response?.data?.error || "";
 
-    // Solo consideramos reintento si el backend dice algo de CSRF
     const isCsrf =
       status === 403 &&
       !cfg.__retriedCsrf &&
@@ -146,20 +129,18 @@ FACT_API.interceptors.response.use(
       msg.toLowerCase().includes("csrf");
 
     if (isCsrf) {
-      try {
-        await axios.get(`${FACT_BASE}/api/csrf`, { withCredentials: true });
-        cfg.__retriedCsrf = true;
-        return FACT_API(cfg);
-      } catch {
-        // si falla, seguimos con el error original
-      }
+      await axios.get(`${FACT_BASE}/api/csrf`, { withCredentials: true });
+      cfg.__retriedCsrf = true;
+      return FACT_API(cfg);
     }
 
     throw error;
   }
 );
 
-// ----------------- API: SPLIT/EFECTIVO -----------------
+// ======================================================
+// 💵 API DE EFECTIVO / SPLIT
+// ======================================================
 export async function getSaldo(pedidoId, noCache = false) {
   const ts = noCache ? `?ts=${Date.now()}` : "";
   const { data } = await FACT_API.get(
@@ -168,11 +149,7 @@ export async function getSaldo(pedidoId, noCache = false) {
   return data;
 }
 
-
-export async function crearPagoEfectivo(
-  pedidoId,
-  { amount, received, note }
-) {
+export async function crearPagoEfectivo(pedidoId, { amount, received, note }) {
   const { data } = await FACT_API.post(
     `${SPLIT_BASE}/pedidos/${pedidoId}/pagos/efectivo`,
     { amount, received, note }
@@ -192,7 +169,9 @@ export async function aprobarPagoEfectivo(
   return data;
 }
 
-// ----------------- API: ADMIN -----------------
+// ======================================================
+// 🧾 ADMIN: LISTADO DE MOVIMIENTOS (FIX DE TU BUILD)
+// ======================================================
 const mapEstado = (v) => {
   const s = String(v || "").trim().toLowerCase();
   if (["", "*", "todos", "todo", "all"].includes(s)) return undefined;
@@ -222,25 +201,34 @@ export async function listarMovimientosEfectivo({
   const { data } = await FACT_API.get(`${ADMIN_BASE}/cash-movements`, {
     params,
   });
+
   return data;
 }
 
-// ----------------- AUTH MOZO :5000 (opcional) -----------------
+// ======================================================
+// 🔑 LOGIN MOZO (CORREGIDO Y COMPLETO)
+// ======================================================
 export async function loginMozo({ restaurantId, pin }) {
   const { data } = await FACT_API.post(
     "/api/auth/login-mozo",
     { restaurantId, pin },
     { withCredentials: true }
   );
-  if (!data?.ok || !data?.token) throw new Error("Login mozo falló");
 
-  // Guardamos para que el interceptor lo mande como Authorization
+  if (!data?.ok || !data?.token) {
+    throw new Error("Login mozo falló");
+  }
+
+  // Guardar JWT
   localStorage.setItem("token", data.token);
 
-  // Guardar restaurant_id para x-restaurant-id
-  if (data?.user?.restaurantId != null) {
-    localStorage.setItem("restaurant_id", String(data.user.restaurantId));
-  }
+  // Guardar identidad completa
+  setAuthIdentity({
+    email: data?.user?.email,
+    id: data?.user?.id,
+    role: "waiter",
+    restaurantId: data?.user?.restaurantId,
+  });
 
   return data;
 }
