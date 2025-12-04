@@ -1,4 +1,3 @@
-// backend-facturacion/src/routes/split/cash.routes.js
 "use strict";
 
 const express = require("express");
@@ -6,7 +5,7 @@ const router = express.Router();
 const crypto = require("crypto");
 const { supabase } = require("../../services/supabase");
 const { getAuthUser } = require("../../utils/authUser");
-const { recomputeAndEmitIfPaid } = require("../../services/split/recompute");
+const { recomputeAndEmitIfPaid } = require("../split.payments");
 
 const CASH_SALT = (process.env.CASH_PIN_SALT || "cashpin.salt").trim();
 
@@ -21,7 +20,7 @@ router.get("/pedidos/:pedidoId/saldo", async (req, res) => {
   const { pedidoId } = req.params;
 
   const { data, error } = await supabase.rpc("get_saldo_pedido", {
-    pedidoid: Number(pedidoId)
+    pedidoid: Number(pedidoId),
   });
 
   if (error) return res.status(400).json({ error: error.message });
@@ -49,30 +48,29 @@ router.post("/pedidos/:pedidoId/pagos/efectivo", async (req, res) => {
   if (existing) {
     return res.json({
       pendingPaymentId: existing.id,
-      ok: true
+      ok: true,
     });
   }
 
-  // 2. insertar pago
   const { data, error } = await supabase
     .from("pagos")
     .insert({
       pedido_id: pedidoId,
-      method: "cash",
-      amount,
-      cash_received: received,
-      note,
+      tipo: "cash",
       estado: "pending",
-      restaurant_id: rid
+      monto: amount,
+      recibido: received,
+      nota: note,
+      restaurant_id: rid,
     })
     .select("id")
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
 
   return res.json({
     ok: true,
-    pagoId: data.id
+    pagoId: data.id,
   });
 });
 
@@ -86,49 +84,51 @@ router.post("/pedidos/:pedidoId/pagos/:pagoId/aprobar", async (req, res) => {
   const rid = Number(req.headers["x-restaurant-id"]);
   if (!rid) return res.status(400).json({ error: "RestaurantId faltante" });
 
-  // 1. validar PIN del restaurante
-  const { data: restaurant } = await supabase
+  // obtener usuario que aprueba
+  const user = getAuthUser(req);
+
+  if (!user?.id) {
+    return res.status(401).json({ error: "Usuario no autorizado" });
+  }
+
+  // validar PIN
+  const { data: rest } = await supabase
     .from("restaurants")
     .select("cash_pin_hash")
     .eq("id", rid)
-    .single();
+    .maybeSingle();
 
-  const hash = sha256(`${pin}::${rid}::${CASH_SALT}`);
-  if (!restaurant || restaurant.cash_pin_hash !== hash) {
-    return res.status(403).json({ error: "PIN incorrecto" });
-  }
+  const valid =
+    rest?.cash_pin_hash === sha256(`${pin}::${rid}::${CASH_SALT}`);
 
-  // 2. identidad del mozo (firmar pago)
-  const user = getAuthUser(req); // viene de requireWaiter()
-  if (!user) {
-    return res.status(403).json({ error: "Sesión inválida" });
-  }
+  if (!valid) return res.status(400).json({ error: "PIN incorrecto" });
 
-  // 3. actualizar pago
-  const { error: updErr } = await supabase
+  // actualizar pago
+  const { error: updateErr } = await supabase
     .from("pagos")
     .update({
       estado: "approved",
-      cash_received: received,
-      note,
-      approved_at: new Date().toISOString(),
+      recibido: received,
+      nota: note,
+      approved_by: user.email,
       approved_by_user_id: user.id,
-      approved_by_user_email: user.email,
-      approved_by_role: "waiter"
     })
     .eq("id", pagoId);
 
-  if (updErr) return res.status(400).json({ error: updErr.message });
+  if (updateErr) {
+    return res.status(400).json({ error: updateErr.message });
+  }
 
-  // 4. recomputar saldo y emitir CPE si aplica
-  const out = await recomputeAndEmitIfPaid(pedidoId, rid);
+  // recalcular saldo + emitir si se completó
+  const status = await recomputeAndEmitIfPaid(pedidoId);
 
   return res.json({
     ok: true,
-    status: out.status,
-    pedidoId,
-    pagoId
+    status,
+    approved_by: user.email,
+    approved_by_user_id: user.id,
   });
 });
 
 module.exports = router;
+

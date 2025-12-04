@@ -73,19 +73,14 @@ async function getSaldo(pedidoId) {
   const pendiente = Math.max(0, Number(ped.total || 0) - pagado);
   return { pedido: ped, pagado, pendiente };
 }
-
-/**
- * Marca pedido pagado si suma aprobada >= total y emite CPE si corresponde.
- * Además, avisa al backend-pedidos (KDS) cuando queda pagado.
- */
 async function recomputeAndEmitIfPaid(pedidoId) {
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
+
   if (pendiente > 0.01) {
-    // Aún falta pagar algo
     return { ok: true, status: "partial", pagado, pendiente };
   }
 
-  // 1) Marcar pedido como pagado si aún no lo está
+  // Marcar pedido pagado
   if (pedido.estado !== "pagado") {
     await supabase
       .from("pedidos")
@@ -95,21 +90,18 @@ async function recomputeAndEmitIfPaid(pedidoId) {
 
   const rid = Number(pedido.restaurant_id || 0);
 
-  // 2) Ver si corresponde emitir CPE (billing_mode = 'sunat' y no hay cpe_id)
-  const { data: rest, error: eRest } = await supabase
+  // Revisar si hay que emitir CPE
+  const { data: rest } = await supabase
     .from("restaurantes")
     .select("billing_mode")
     .eq("id", rid)
     .maybeSingle();
-  if (eRest) throw new Error(eRest.message);
 
   const billingMode = rest?.billing_mode || "none";
-
-  // Variables que devolveremos
   let cpeId = pedido.cpe_id || null;
   let estadoCpe = pedido.sunat_estado || null;
 
-  // Si ya tiene CPE o el restaurante no factura con SUNAT → solo avisar al KDS
+  // Si ya existe CPE o no es modo SUNAT → solo avisar KDS
   if (cpeId || billingMode !== "sunat") {
     try {
       if (rid) {
@@ -129,143 +121,27 @@ async function recomputeAndEmitIfPaid(pedidoId) {
     };
   }
 
-  // 3) Emitir CPE porque:
-  //    - billing_mode = 'sunat'
-  //    - no tenía cpe_id
-  const comprobanteTipo = String(pedido.comprobante_tipo || "03");
-  const { pedido: pedFull, detalles } = await getPedidoCompleto(pedido.id);
-
-  const billing =
-    pedFull.billing_client && Object.keys(pedFull.billing_client).length > 0
-      ? pedFull.billing_client
-      : { tipoDoc: "1", numDoc: "00000000", nombres: "CLIENTE" };
-
-  const emisor = await getEmisorByRestaurant(rid);
-  const { serie, correlativo } = await reservarCorrelativo(
-    rid,
-    comprobanteTipo
-  );
-  const { body: cpeBody, totals } = buildCPE({
-    tipoDoc: comprobanteTipo,
-    serie,
-    correlativo,
-    fechaEmisionISO: nowLimaISO(),
-    emisor,
-    billing,
-    detalles,
-    pedido: pedFull,
-  });
-
-  const { data: ins, error: eIns } = await supabase
-    .from("cpe_documents")
-    .insert([
-      {
-        restaurant_id: rid,
-        pedido_id: pedido.id,
-        tipo_doc: comprobanteTipo,
-        serie,
-        correlativo,
-        moneda: "PEN",
-        subtotal: Number(totals?.valorVenta ?? 0),
-        igv: Number(totals?.mtoIGV ?? 0),
-        total: Number(totals?.mtoImpVenta ?? 0),
-        estado: "PENDIENTE",
-        raw_request: cpeBody,
-        client: billing,
-      },
-    ])
-    .select("id")
-    .maybeSingle();
-
-  if (eIns) throw new Error(eIns.message);
-  cpeId = ins?.id;
-
-  let estado = "ENVIADO",
-    pdf_url = null,
-    xml_url = null,
-    cdr_url = null,
-    hash = null,
-    digest = null,
-    ticket = null,
-    notas = null;
-
+  // Emitir CPE SUNAT
   try {
-    const resp = await emitirInvoice({ restaurantId: rid, cpeBody });
-    const success =
-      resp?.accepted || resp?.sunatResponse?.success || !!resp?.cdrZip;
-    const hasErr = !!(resp?.error || resp?.sunatResponse?.error);
-    estado = success ? "ACEPTADO" : hasErr ? "RECHAZADO" : "ENVIADO";
-    notas =
-      resp?.sunatResponse?.error?.message ||
-      resp?.error?.message ||
-      null;
-    hash = resp?.hash || resp?.digestValue || null;
-    digest = resp?.digestValue || resp?.hash || null;
-    ticket = resp?.ticket || null;
+    const full = await getPedidoCompleto(pedido.id);
+    const emisor = await getEmisorByRestaurant(rid);
 
-    // Guardar archivos opcionalmente
-    try {
-      const base = `${emisor.ruc}/${serie}-${String(correlativo).padStart(
-        8,
-        "0"
-      )}`;
-      const save = async (key, b64, mime) => {
-        if (!b64) return null;
-        const bytes = Buffer.from(b64, "base64");
-        const { error } = await supabase.storage
-          .from(process.env.CPE_BUCKET || "cpe")
-          .upload(`${base}${key}`, bytes, { upsert: true, contentType: mime });
-        if (error) return null;
-        const { data: pub } = supabase.storage
-          .from(process.env.CPE_BUCKET || "cpe")
-          .getPublicUrl(`${base}${key}`);
-        return pub?.publicUrl || null;
-      };
-      // xmlZip y cdrZip (mismo formato que tenías)
-      xml_url = await save(
-        ".zip",
-        resp?.xmlZipBase64 || resp?.xml,
-        "application/zip"
-      );
-      cdr_url = await save(
-        "-cdr.zip",
-        resp?.cdrZipBase64 || resp?.cdrZip,
-        "application/zip"
-      );
-      // Si algún día añades PDF desde facturador, aquí setearías pdf_url
-    } catch {
-      // no bloquear si falla storage
-    }
+    const xml = await buildCPE(full, emisor, nowLimaISO());
+    const stored = await emitirInvoice(xml, rid);
+
+    cpeId = stored.cpeId;
+    estadoCpe = stored.estado;
+
+    await supabase
+      .from("pedidos")
+      .update({ cpe_id: cpeId, sunat_estado: estadoCpe })
+      .eq("id", pedido.id);
+
   } catch (e) {
-    estado = "RECHAZADO";
-    notas = e?.message || "Error emitiendo";
+    console.warn("[recomputeAndEmitIfPaid] CPE error:", e.message);
   }
 
-  await supabase
-    .from("cpe_documents")
-    .update({
-      estado,
-      xml_url,
-      pdf_url,
-      cdr_url,
-      hash,
-      digest,
-      sunat_ticket: ticket,
-      sunat_notas: notas,
-    })
-    .eq("id", cpeId);
-
-  await supabase
-    .from("pedidos")
-    .update({
-      cpe_id: cpeId,
-      sunat_estado: estado,
-    })
-    .eq("id", pedido.id);
-
-  estadoCpe = estado;
-
-  // 4) Avisar al backend-pedidos para que el KDS reciba "pedido_pagado"
+  // Avisar al KDS
   try {
     if (rid) {
       await notifyKdsPedidoPagado(rid, pedido.id);
@@ -280,7 +156,7 @@ async function recomputeAndEmitIfPaid(pedidoId) {
     pagado,
     pendiente: 0,
     cpeId,
-    estado: estadoCpe,
+    estado: estadoCpe || "NO_EMITIDO",
   };
 }
 
@@ -536,4 +412,3 @@ router.post(
 );
 
 module.exports = router;
-module.exports.recomputeAndEmitIfPaid = recomputeAndEmitIfPaid;
