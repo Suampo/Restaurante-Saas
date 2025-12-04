@@ -410,5 +410,5 @@ router.post(
     }
   }
 );
-
+router.recomputeAndEmitIfPaid = recomputeAndEmitIfPaid;
 module.exports = router;

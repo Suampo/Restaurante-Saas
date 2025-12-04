@@ -78,96 +78,95 @@ export default function CobroEfectivo() {
     );
   };
 
-  // Ahora la sesión viene del login normal (admin/mozo) y del interceptor de FACT_API.
-  // No necesitamos auto-login con PIN aquí.
- const ensureSession = async () => {
-  const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("access_token") ||
-    sessionStorage.getItem("token") ||
-    sessionStorage.getItem("access_token");
+  // La sesión viene del login normal (admin/mozo) y del interceptor de FACT_API.
+  const ensureSession = async () => {
+    const token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("access_token") ||
+      localStorage.getItem("dbToken") ||
+      sessionStorage.getItem("token") ||
+      sessionStorage.getItem("access_token") ||
+      sessionStorage.getItem("dbToken");
 
-  const email = localStorage.getItem("user_email");
-  const uid   = localStorage.getItem("user_id");
-  const rid   = localStorage.getItem("restaurant_id");
+    const email = localStorage.getItem("user_email");
+    const uid = localStorage.getItem("user_id");
+    const rid = localStorage.getItem("restaurant_id");
 
-  // si existe todo → sesión válida
-  if (token && email && uid && rid) {
-    return true;
-  }
+    // si existe todo → sesión válida
+    if (token && email && uid && rid) {
+      return true;
+    }
 
-  // si falta algo → impedir cobro
-  throw new Error(
-    "No hay sesión válida. El mozo debe volver a iniciar sesión."
-  );
-};
+    // si falta algo → impedir cobro
+    throw new Error("No hay sesión válida. El mozo debe volver a iniciar sesión.");
+  };
+
   // ======= Actions =======
- const fetchSaldo = async (force = false) => {
-  if (!pedidoId) return;
+  const fetchSaldo = async (force = false) => {
+    if (!pedidoId) return;
 
-  setErrorMsg("");
-  setResult(null);
-  setPrintable(null);
-  setPagoId(null);
-
-  setLoadingSaldo(true);
-  try {
-    await ensureSession();
-
-    // 👉 fuerza a evitar cache agregando timestamp
-   const data = await getSaldo(pedidoId, force);
-
-    setSaldo(data);
-    setAmount(String(Number(data.pendiente || 0).toFixed(2)));
-  } catch (e) {
-    setSaldo(null);
-    setErrorMsg(
-      e?.response?.data?.error || e.message || "No se pudo cargar el saldo"
-    );
-  } finally {
-    setLoadingSaldo(false);
-  }
-};
-
-
- const handleCrearPago = async () => {
-  try {
     setErrorMsg("");
-    const a = Number(amount || 0);
-    const r = received !== "" ? Number(received || 0) : null;
+    setResult(null);
+    setPrintable(null);
+    setPagoId(null);
 
-    if (!(a > 0)) return setErrorMsg("Monto inválido");
-    if (saldo && a - Number(saldo.pendiente || 0) > 0.01) {
-      return setErrorMsg("El monto excede el saldo pendiente");
+    setLoadingSaldo(true);
+    try {
+      await ensureSession();
+
+      // fuerza a evitar cache agregando timestamp
+      const data = await getSaldo(pedidoId, force);
+
+      setSaldo(data);
+      setAmount(String(Number(data.pendiente || 0).toFixed(2)));
+    } catch (e) {
+      setSaldo(null);
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo cargar el saldo"
+      );
+    } finally {
+      setLoadingSaldo(false);
     }
+  };
 
-    setCreating(true);
+  const handleCrearPago = async () => {
+    try {
+      setErrorMsg("");
+      const a = Number(amount || 0);
+      const r = received !== "" ? Number(received || 0) : null;
 
-    await ensureSession();
+      if (!(a > 0)) return setErrorMsg("Monto inválido");
+      if (saldo && a - Number(saldo.pendiente || 0) > 0.01) {
+        return setErrorMsg("El monto excede el saldo pendiente");
+      }
 
-    const data = await crearPagoEfectivo(pedidoId, {
-      amount: a,
-      received: r,
-      note,
-    });
+      setCreating(true);
 
-    // ⚠️ FIX 2: si el backend dice que existe un pago pendiente
-    if (data.pendingPaymentId) {
-      setPagoId(data.pendingPaymentId);
+      await ensureSession();
+
+      const data = await crearPagoEfectivo(pedidoId, {
+        amount: a,
+        received: r,
+        note,
+      });
+
+      // si el backend dice que existe un pago pendiente
+      if (data.pendingPaymentId) {
+        setPagoId(data.pendingPaymentId);
+        setShowPinModal(true);
+        return;
+      }
+
+      setPagoId(data.pagoId);
       setShowPinModal(true);
-      return;
+    } catch (e) {
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo crear el pago"
+      );
+    } finally {
+      setCreating(false);
     }
-
-    setPagoId(data.pagoId);
-    setShowPinModal(true);
-  } catch (e) {
-    setErrorMsg(
-      e?.response?.data?.error || e.message || "No se pudo crear el pago"
-    );
-  } finally {
-    setCreating(false);
-  }
-};
+  };
 
   const handleAprobar = async () => {
     try {
@@ -189,8 +188,7 @@ export default function CobroEfectivo() {
       setShowPinModal(false);
 
       const monto = Number(amount || 0);
-      const change =
-        rcv != null && rcv > monto ? rcv - monto : 0;
+      const change = rcv != null && rcv > monto ? rcv - monto : 0;
 
       setPrintable({
         pedidoId,
@@ -204,13 +202,12 @@ export default function CobroEfectivo() {
       setErrorMsg(
         e?.response?.data?.error || e.message || "No se pudo aprobar el pago"
       );
-   } finally {
-  setApproving(false);
-  setTimeout(() => {
-    fetchSaldo(true);
-  }, 350);
-}
-
+    } finally {
+      setApproving(false);
+      setTimeout(() => {
+        fetchSaldo(true);
+      }, 350);
+    }
   };
 
   const onPrint = () => {
@@ -238,9 +235,7 @@ export default function CobroEfectivo() {
           printable.amount
         )}</span></div>
         <div class="line"><span class="muted">Recibido</span><span>${
-          printable.received != null
-            ? PEN.format(printable.received)
-            : "-"
+          printable.received != null ? PEN.format(printable.received) : "-"
         }</span></div>
         <div class="line"><span class="muted">Vuelto</span><span>${PEN.format(
           printable.change || 0
@@ -432,25 +427,24 @@ export default function CobroEfectivo() {
 
                 <div className="flex flex-wrap gap-2">
                   <button
-  onClick={handleCrearPago}
-  disabled={
-    !saldo ||
-    creating ||
-    !amount ||
-    Number(amount) <= 0 ||
-    (saldo &&
-      Number(amount) - Number(saldo.pendiente) > 0.01)
-  }
-  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
->
-  {creating ? (
-    <Loader2 className="h-4 w-4 animate-spin" />
-  ) : (
-    <Wallet className="h-4 w-4" />
-  )}
-  {creating ? "Registrando..." : "Registrar efectivo"}
-</button>
-
+                    onClick={handleCrearPago}
+                    disabled={
+                      !saldo ||
+                      creating ||
+                      !amount ||
+                      Number(amount) <= 0 ||
+                      (saldo &&
+                        Number(amount) - Number(saldo.pendiente) > 0.01)
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {creating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wallet className="h-4 w-4" />
+                    )}
+                    {creating ? "Registrando..." : "Registrar efectivo"}
+                  </button>
 
                   <button
                     onClick={clearAll}
