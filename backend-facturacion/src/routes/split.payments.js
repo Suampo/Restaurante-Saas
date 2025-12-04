@@ -348,6 +348,22 @@ router.post(
           .json({ error: "El monto excede el saldo pendiente" });
       }
 
+      // 🚫 FIX 1 — NO PERMITIR DUPLICAR PAGOS PENDING
+      const { data: existingPending } = await supabase
+        .from("pagos")
+        .select("id")
+        .eq("pedido_id", pedidoId)
+        .eq("estado", "pending")
+        .maybeSingle();
+
+      if (existingPending) {
+        return res.status(409).json({
+          error:
+            "Ya existe un pago pendiente. Aprobalo o elimínalo antes de crear otro.",
+          pendingPaymentId: existingPending.id,
+        });
+      }
+
       const change =
         cashReceived != null && cashReceived > amount
           ? cashReceived - amount

@@ -160,12 +160,14 @@ FACT_API.interceptors.response.use(
 );
 
 // ----------------- API: SPLIT/EFECTIVO -----------------
-export async function getSaldo(pedidoId) {
+export async function getSaldo(pedidoId, noCache = false) {
+  const ts = noCache ? `?ts=${Date.now()}` : "";
   const { data } = await FACT_API.get(
-    `${SPLIT_BASE}/pedidos/${pedidoId}/saldo`
+    `${SPLIT_BASE}/pedidos/${pedidoId}/saldo${ts}`
   );
   return data;
 }
+
 
 export async function crearPagoEfectivo(
   pedidoId,
