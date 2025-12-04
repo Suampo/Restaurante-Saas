@@ -168,47 +168,71 @@ export default function CobroEfectivo() {
     }
   };
 
-  const handleAprobar = async () => {
-    try {
-      if (!pagoId) return;
-      if (!pin || pin.length < 4)
-        return setErrorMsg("PIN inválido (mínimo 4 dígitos)");
+ const handleAprobar = async () => {
+    try {
+      if (!pagoId) return;
+      if (!pin || pin.length < 4)
+        return setErrorMsg("PIN inválido (mínimo 4 dígitos)");
 
-      setApproving(true);
+      setApproving(true);
 
-      await ensureSession();
+      await ensureSession();
 
-      const rcv = received !== "" ? Number(received || 0) : null;
-      const data = await aprobarPagoEfectivo(pedidoId, pagoId, {
-        pin,
-        received: rcv,
-        note,
-      });
-      setResult(data);
-      setShowPinModal(false);
+      const rcv = received !== "" ? Number(received || 0) : null;
+      
+      // 1. Llamada al API
+      const data = await aprobarPagoEfectivo(pedidoId, pagoId, {
+        pin,
+        received: rcv,
+        note,
+      });
 
-      const monto = Number(amount || 0);
-      const change = rcv != null && rcv > monto ? rcv - monto : 0;
+      // 2. Actualizar estado LOCALMENTE con la respuesta del servidor
+      // No llamamos a fetchSaldo, usamos 'data' que ya trae lo nuevo
+      setResult(data);
+      setShowPinModal(false);
 
-      setPrintable({
-        pedidoId,
-        total: saldo?.total ?? 0,
-        amount: monto,
-        received: rcv,
-        change,
-        status: data?.status,
-      });
-    } catch (e) {
-      setErrorMsg(
-        e?.response?.data?.error || e.message || "No se pudo aprobar el pago"
-      );
-    } finally {
-      setApproving(false);
-      setTimeout(() => {
-        fetchSaldo(true);
-      }, 350);
-    }
-  };
+      // 3. Actualizar la visualización de saldo inmediatamente
+      if (data.ok) {
+          setSaldo(prev => ({
+              ...prev,
+              pagado: data.pagado,       // El backend devuelve esto actualizado
+              pendiente: data.pendiente, // El backend devuelve esto (debería ser 0 si pagó todo)
+              // Mantenemos el total o lo actualizamos si el backend lo envía
+              total: prev?.total || data.total 
+          }));
+      }
+
+      const monto = Number(amount || 0);
+      const change = rcv != null && rcv > monto ? rcv - monto : 0;
+
+      setPrintable({
+        pedidoId,
+        total: saldo?.total ?? 0,
+        amount: monto,
+        received: rcv,
+        change,
+        status: data?.status,
+      });
+      
+      // 4. (Opcional) Mensaje de éxito si se completó
+      if (data.status === 'paid') {
+         // Puedes agregar un toast aquí si tienes librería de notificaciones
+         // toast.success("Pedido pagado correctamente"); 
+      }
+
+    } catch (e) {
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo aprobar el pago"
+      );
+      // Solo recargamos saldo si hubo error, por si acaso quedó en estado intermedio
+      fetchSaldo(true);
+    } finally {
+      setApproving(false);
+      // ❌ ELIMINADO: setTimeout(() => fetchSaldo(true), 350); 
+      // Ya no necesitamos recargar, causaba que volviera a salir "pendiente"
+    }
+  };
 
   const onPrint = () => {
     if (!printable) return;
