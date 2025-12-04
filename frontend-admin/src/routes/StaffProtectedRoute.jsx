@@ -1,22 +1,33 @@
+// src/routes/StaffProtectedRoute.jsx
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 export default function StaffProtectedRoute() {
   const loc = useLocation();
 
+  // Token emitido por backend-pedidos (login normal) o mozo
   const token =
     localStorage.getItem("token") ||
     localStorage.getItem("access_token") ||
+    localStorage.getItem("dbToken") ||
     sessionStorage.getItem("token") ||
-    sessionStorage.getItem("access_token");
+    sessionStorage.getItem("access_token") ||
+    sessionStorage.getItem("dbToken");
 
-  const role = (localStorage.getItem("role") || sessionStorage.getItem("role") || "").toLowerCase();
+  // Rol que guardamos con setAuthIdentity
+  const role = (
+    localStorage.getItem("user_role") ||
+    sessionStorage.getItem("user_role") ||
+    ""
+  ).toLowerCase();
 
+  // Sin token -> al login unificado
   if (!token) {
-    return <Navigate to="/mozo/login" state={{ from: loc }} replace />;
+    return <Navigate to="/login" state={{ from: loc }} replace />;
   }
 
-  if (role !== "staff" && role !== "admin") {
-    return <Navigate to="/mozo/login" replace />;
+  // Solo pueden pasar admin o staff
+  if (role !== "admin" && role !== "staff") {
+    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;

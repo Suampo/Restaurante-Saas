@@ -73,6 +73,7 @@ async function getSaldo(pedidoId) {
   const pendiente = Math.max(0, Number(ped.total || 0) - pagado);
   return { pedido: ped, pagado, pendiente };
 }
+
 async function recomputeAndEmitIfPaid(pedidoId) {
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
 
@@ -136,7 +137,6 @@ async function recomputeAndEmitIfPaid(pedidoId) {
       .from("pedidos")
       .update({ cpe_id: cpeId, sunat_estado: estadoCpe })
       .eq("id", pedido.id);
-
   } catch (e) {
     console.warn("[recomputeAndEmitIfPaid] CPE error:", e.message);
   }
@@ -224,7 +224,7 @@ router.post(
           .json({ error: "El monto excede el saldo pendiente" });
       }
 
-      // 🚫 FIX 1 — NO PERMITIR DUPLICAR PAGOS PENDING
+      // 🚫 NO PERMITIR DUPLICAR PAGOS PENDING
       const { data: existingPending } = await supabase
         .from("pagos")
         .select("id")
@@ -410,5 +410,6 @@ router.post(
     }
   }
 );
+
 router.recomputeAndEmitIfPaid = recomputeAndEmitIfPaid;
 module.exports = router;
