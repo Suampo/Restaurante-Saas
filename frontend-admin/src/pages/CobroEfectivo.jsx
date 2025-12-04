@@ -1,24 +1,32 @@
 // src/pages/CobroEfectivo.jsx
 import { useState, useEffect } from "react";
-import { getSaldo, crearPagoEfectivo, aprobarPagoEfectivo, ensureMozoSession } from "../services/cashApi";
+import { getSaldo, crearPagoEfectivo, aprobarPagoEfectivo } from "../services/cashApi";
 import {
-  Search, Loader2, Wallet, ReceiptText, KeyRound, CheckCircle2, AlertCircle, Printer, Eraser
+  Search,
+  Loader2,
+  Wallet,
+  ReceiptText,
+  KeyRound,
+  CheckCircle2,
+  AlertCircle,
+  Printer,
+  Eraser,
 } from "lucide-react";
 
-const PEN = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", minimumFractionDigits: 2 });
-
-// Defaults para auto-login de mozo (ajusta a tu gusto)
-const RESTAURANT_ID_DEFAULT = Number(localStorage.getItem("restaurant_id") || 1);
-const PIN_DEFAULT = import.meta.env.VITE_WAITER_PIN || "1234";
+const PEN = new Intl.NumberFormat("es-PE", {
+  style: "currency",
+  currency: "PEN",
+  minimumFractionDigits: 2,
+});
 
 export default function CobroEfectivo() {
   // ======= State =======
   const [pedidoId, setPedidoId] = useState("");
-  const [saldo, setSaldo] = useState(null);         // { total, pagado, pendiente }
+  const [saldo, setSaldo] = useState(null); // { total, pagado, pendiente }
   const [loadingSaldo, setLoadingSaldo] = useState(false);
 
-  const [received, setReceived] = useState("");     // cuánto entrega el cliente
-  const [amount, setAmount] = useState("");         // cuánto registrar en efectivo
+  const [received, setReceived] = useState(""); // cuánto entrega el cliente
+  const [amount, setAmount] = useState(""); // cuánto registrar en efectivo
   const [note, setNote] = useState("");
   const [creating, setCreating] = useState(false);
   const [pagoId, setPagoId] = useState(null);
@@ -26,7 +34,7 @@ export default function CobroEfectivo() {
   const [pin, setPin] = useState("");
   const [approving, setApproving] = useState(false);
 
-  const [result, setResult] = useState(null);       // { ok, status, ... }
+  const [result, setResult] = useState(null); // { ok, status, ... }
   const [errorMsg, setErrorMsg] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [printable, setPrintable] = useState(null);
@@ -44,22 +52,36 @@ export default function CobroEfectivo() {
     const a = Number(amount || 0);
     const r = Number(received || 0);
     if (!(r > 0) || !(a > 0)) return 0;
-    return r > a ? (r - a) : 0;
+    return r > a ? r - a : 0;
   };
 
   const statusPill = (status) => {
     if (!status) return null;
-    const base = "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium";
-    if (status === "paid") return <span className={`${base} bg-green-100 text-green-700`}><CheckCircle2 size={14}/> Pagado</span>;
-    if (status === "partial") return <span className={`${base} bg-amber-100 text-amber-700`}><AlertCircle size={14}/> Parcial</span>;
-    return <span className={`${base} bg-zinc-100 text-zinc-700`}>{String(status).toUpperCase()}</span>;
+    const base =
+      "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium";
+    if (status === "paid")
+      return (
+        <span className={`${base} bg-green-100 text-green-700`}>
+          <CheckCircle2 size={14} /> Pagado
+        </span>
+      );
+    if (status === "partial")
+      return (
+        <span className={`${base} bg-amber-100 text-amber-700`}>
+          <AlertCircle size={14} /> Parcial
+        </span>
+      );
+    return (
+      <span className={`${base} bg-zinc-100 text-zinc-700`}>
+        {String(status).toUpperCase()}
+      </span>
+    );
   };
 
-  // Pequeño helper para garantizar sesión :5000 antes de pegarle a /api/split/*
+  // Ahora la sesión viene del login normal (admin/mozo) y del interceptor de FACT_API.
+  // No necesitamos auto-login con PIN aquí.
   const ensureSession = async () => {
-    const rid = Number(localStorage.getItem("restaurant_id") || RESTAURANT_ID_DEFAULT || 1);
-    const pinToUse = PIN_DEFAULT;      // si quieres, usa 'pin' ingresado por UI
-    await ensureMozoSession({ restaurantId: rid, pin: pinToUse });
+    return true;
   };
 
   // ======= Actions =======
@@ -72,16 +94,15 @@ export default function CobroEfectivo() {
 
     setLoadingSaldo(true);
     try {
-      // 1) Asegura login de mozo
       await ensureSession();
-
-      // 2) Ya con JWT + CSRF, pide el saldo
       const data = await getSaldo(pedidoId);
       setSaldo(data);
       setAmount(String(Number(data.pendiente || 0).toFixed(2)));
     } catch (e) {
       setSaldo(null);
-      setErrorMsg(e?.response?.data?.error || e.message || "No se pudo cargar el saldo");
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo cargar el saldo"
+      );
     } finally {
       setLoadingSaldo(false);
     }
@@ -100,14 +121,19 @@ export default function CobroEfectivo() {
 
       setCreating(true);
 
-      // Asegura sesión antes de POST
       await ensureSession();
 
-      const data = await crearPagoEfectivo(pedidoId, { amount: a, received: r, note });
+      const data = await crearPagoEfectivo(pedidoId, {
+        amount: a,
+        received: r,
+        note,
+      });
       setPagoId(data.pagoId);
       setShowPinModal(true);
     } catch (e) {
-      setErrorMsg(e?.response?.data?.error || e.message || "No se pudo crear el pago");
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo crear el pago"
+      );
     } finally {
       setCreating(false);
     }
@@ -116,28 +142,38 @@ export default function CobroEfectivo() {
   const handleAprobar = async () => {
     try {
       if (!pagoId) return;
-      if (!pin || pin.length < 4) return setErrorMsg("PIN inválido (mínimo 4 dígitos)");
+      if (!pin || pin.length < 4)
+        return setErrorMsg("PIN inválido (mínimo 4 dígitos)");
 
       setApproving(true);
 
-      // Asegura sesión antes de POST aprobar
       await ensureSession();
 
       const rcv = received !== "" ? Number(received || 0) : null;
-      const data = await aprobarPagoEfectivo(pedidoId, pagoId, { pin, received: rcv, note });
+      const data = await aprobarPagoEfectivo(pedidoId, pagoId, {
+        pin,
+        received: rcv,
+        note,
+      });
       setResult(data);
       setShowPinModal(false);
+
+      const monto = Number(amount || 0);
+      const change =
+        rcv != null && rcv > monto ? rcv - monto : 0;
 
       setPrintable({
         pedidoId,
         total: saldo?.total ?? 0,
-        amount: Number(amount || 0),
+        amount: monto,
         received: rcv,
-        change: rcv != null && rcv > Number(amount || 0) ? (rcv - Number(amount || 0)) : 0,
+        change,
         status: data?.status,
       });
     } catch (e) {
-      setErrorMsg(e?.response?.data?.error || e.message || "No se pudo aprobar el pago");
+      setErrorMsg(
+        e?.response?.data?.error || e.message || "No se pudo aprobar el pago"
+      );
     } finally {
       setApproving(false);
       fetchSaldo();
@@ -162,11 +198,23 @@ export default function CobroEfectivo() {
       <body>
         <h2>Pago en efectivo</h2>
         <div class="line"><span class="muted">Pedido</span><span>#${printable.pedidoId}</span></div>
-        <div class="line"><span class="muted">Total</span><span>${PEN.format(printable.total)}</span></div>
-        <div class="line"><span class="muted">Registrado efectivo</span><span>${PEN.format(printable.amount)}</span></div>
-        <div class="line"><span class="muted">Recibido</span><span>${printable.received != null ? PEN.format(printable.received) : '-'}</span></div>
-        <div class="line"><span class="muted">Vuelto</span><span>${PEN.format(printable.change || 0)}</span></div>
-        <div class="line"><span class="muted">Estado</span><span class="ok">${(printable.status || '').toUpperCase()}</span></div>
+        <div class="line"><span class="muted">Total</span><span>${PEN.format(
+          printable.total
+        )}</span></div>
+        <div class="line"><span class="muted">Registrado efectivo</span><span>${PEN.format(
+          printable.amount
+        )}</span></div>
+        <div class="line"><span class="muted">Recibido</span><span>${
+          printable.received != null
+            ? PEN.format(printable.received)
+            : "-"
+        }</span></div>
+        <div class="line"><span class="muted">Vuelto</span><span>${PEN.format(
+          printable.change || 0
+        )}</span></div>
+        <div class="line"><span class="muted">Estado</span><span class="ok">${String(
+          printable.status || ""
+        ).toUpperCase()}</span></div>
         <hr />
         <small class="muted">Gracias por su compra</small>
       </body></html>`;
@@ -196,7 +244,9 @@ export default function CobroEfectivo() {
     const pid = q.get("pedido");
     if (pid) {
       setPedidoId(pid);
-      setTimeout(() => { fetchSaldo(); }, 0);
+      setTimeout(() => {
+        fetchSaldo();
+      }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -206,7 +256,9 @@ export default function CobroEfectivo() {
     <div className="mx-auto w-full max-w-5xl p-3 sm:p-4 md:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Wallet className="h-6 w-6 text-green-600" />
-        <h1 className="text-xl font-semibold sm:text-2xl">Cobro en efectivo (Mozo)</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">
+          Cobro en efectivo (Mozo)
+        </h1>
       </div>
 
       {errorMsg && (
@@ -234,11 +286,15 @@ export default function CobroEfectivo() {
               <div className="font-medium">Buscar pedido</div>
             </div>
             <div className="px-4 pb-4 pt-3">
-              <label className="mb-1 block text-sm text-zinc-600">Pedido ID</label>
+              <label className="mb-1 block text-sm text-zinc-600">
+                Pedido ID
+              </label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={pedidoId}
-                  onChange={(e) => setPedidoId(e.target.value.replace(/\D+/g, ""))}
+                  onChange={(e) =>
+                    setPedidoId(e.target.value.replace(/\D+/g, ""))
+                  }
                   onKeyDown={(e) => e.key === "Enter" && fetchSaldo()}
                   placeholder="Ej: 123"
                   inputMode="numeric"
@@ -249,7 +305,11 @@ export default function CobroEfectivo() {
                   disabled={!pedidoId || loadingSaldo}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {loadingSaldo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  {loadingSaldo ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
                   {loadingSaldo ? "Buscando..." : "Buscar"}
                 </button>
               </div>
@@ -257,7 +317,11 @@ export default function CobroEfectivo() {
           </div>
 
           {/* Formulario de cobro */}
-          <div className={`rounded-2xl border bg-white shadow-sm ${!saldo ? "opacity-60" : ""}`}>
+          <div
+            className={`rounded-2xl border bg-white shadow-sm ${
+              !saldo ? "opacity-60" : ""
+            }`}
+          >
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <ReceiptText className="h-5 w-5 text-zinc-500" />
               <div className="font-medium">Registrar pago en efectivo</div>
@@ -266,7 +330,9 @@ export default function CobroEfectivo() {
             <div className="px-4 pb-4 pt-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm text-zinc-600">Recibido (cliente)</label>
+                  <label className="mb-1 block text-sm text-zinc-600">
+                    Recibido (cliente)
+                  </label>
                   <input
                     value={received}
                     onChange={(e) => setReceived(parseMoney(e.target.value))}
@@ -278,11 +344,17 @@ export default function CobroEfectivo() {
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="mb-1 block text-sm text-zinc-600">Registrar efectivo (amount)</label>
+                    <label className="mb-1 block text-sm text-zinc-600">
+                      Registrar efectivo (amount)
+                    </label>
                     {saldo && (
                       <button
                         type="button"
-                        onClick={() => setAmount(String(Number(saldo.pendiente || 0).toFixed(2)))}
+                        onClick={() =>
+                          setAmount(
+                            String(Number(saldo.pendiente || 0).toFixed(2))
+                          )
+                        }
                         className="text-xs text-emerald-700 hover:underline"
                       >
                         Usar pendiente
@@ -292,7 +364,11 @@ export default function CobroEfectivo() {
                   <input
                     value={amount}
                     onChange={(e) => setAmount(parseMoney(e.target.value))}
-                    placeholder={`Ej: ${saldo ? Number(saldo.pendiente || 0).toFixed(2) : "0.00"}`}
+                    placeholder={`Ej: ${
+                      saldo
+                        ? Number(saldo.pendiente || 0).toFixed(2)
+                        : "0.00"
+                    }`}
                     inputMode="decimal"
                     className="w-full rounded-lg border px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
                     disabled={!saldo}
@@ -300,7 +376,9 @@ export default function CobroEfectivo() {
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-sm text-zinc-600">Observación (opcional)</label>
+                  <label className="mb-1 block text-sm text-zinc-600">
+                    Observación (opcional)
+                  </label>
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
@@ -322,10 +400,21 @@ export default function CobroEfectivo() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={handleCrearPago}
-                    disabled={!saldo || creating || !amount || Number(amount) <= 0 || (saldo && Number(amount) - Number(saldo.pendiente) > 0.01)}
+                    disabled={
+                      !saldo ||
+                      creating ||
+                      !amount ||
+                      Number(amount) <= 0 ||
+                      (saldo &&
+                        Number(amount) - Number(saldo.pendiente) > 0.01)
+                    }
                     className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+                    {creating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wallet className="h-4 w-4" />
+                    )}
                     {creating ? "Registrando..." : "Registrar efectivo"}
                   </button>
 
@@ -382,15 +471,21 @@ export default function CobroEfectivo() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-xl bg-zinc-50 p-3">
                     <div className="text-xs text-zinc-500">Total</div>
-                    <div className="text-lg font-semibold">{PEN.format(saldo.total)}</div>
+                    <div className="text-lg font-semibold">
+                      {PEN.format(saldo.total)}
+                    </div>
                   </div>
                   <div className="rounded-xl bg-zinc-50 p-3">
                     <div className="text-xs text-zinc-500">Pagado</div>
-                    <div className="text-lg font-semibold">{PEN.format(saldo.pagado)}</div>
+                    <div className="text-lg font-semibold">
+                      {PEN.format(saldo.pagado)}
+                    </div>
                   </div>
                   <div className="rounded-xl bg-zinc-50 p-3">
                     <div className="text-xs text-zinc-500">Pendiente</div>
-                    <div className="text-lg font-semibold text-amber-600">{PEN.format(saldo.pendiente)}</div>
+                    <div className="text-lg font-semibold text-amber-600">
+                      {PEN.format(saldo.pendiente)}
+                    </div>
                   </div>
                 </div>
               )}
@@ -399,10 +494,19 @@ export default function CobroEfectivo() {
 
           <div className="rounded-2xl border bg-white shadow-sm">
             <div className="border-b px-4 py-3 font-medium">Ayuda rápida</div>
-            <div className="px-4 pb-4 pt-3 text-sm text-zinc-600 space-y-2">
-              <p>• Usa <b>“Usar pendiente”</b> para llenar el monto exacto que falta.</p>
-              <p>• El <b>PIN</b> lo define el restaurante; si no existe, el sistema te avisará.</p>
-              <p>• Tras aprobar, si el estado queda <b>Parcial</b>, aún falta saldo para completar el pago.</p>
+            <div className="space-y-2 px-4 pb-4 pt-3 text-sm text-zinc-600">
+              <p>
+                • Usa <b>“Usar pendiente”</b> para llenar el monto exacto que
+                falta.
+              </p>
+              <p>
+                • El <b>PIN</b> lo define el restaurante; si no existe, el
+                sistema te avisará.
+              </p>
+              <p>
+                • Tras aprobar, si el estado queda <b>Parcial</b>, aún falta
+                saldo para completar el pago.
+              </p>
             </div>
           </div>
         </div>
@@ -419,7 +523,9 @@ export default function CobroEfectivo() {
             <div className="px-4 pb-4 pt-3">
               <input
                 value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D+/g, "").slice(0, 6))}
+                onChange={(e) =>
+                  setPin(e.target.value.replace(/\D+/g, "").slice(0, 6))
+                }
                 placeholder="PIN (4-6 dígitos)"
                 inputMode="numeric"
                 className="mb-3 w-full rounded-lg border px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
@@ -436,7 +542,11 @@ export default function CobroEfectivo() {
                   disabled={approving || !pin || pin.length < 4}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {approving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
                   {approving ? "Aprobando..." : "Aprobar"}
                 </button>
               </div>

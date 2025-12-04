@@ -57,14 +57,15 @@ const allowlist = [...new Set([...defaultOrigins, ...envOrigins])];
 const baseCors = {
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "x-csrf-token",
-    "authorization",
-    "x-restaurant-id",
-    "x-app-user-id",
-    "x-db-token",
-  ],
+allowedHeaders: [
+  "Content-Type",
+  "x-csrf-token",
+  "authorization",
+  "x-restaurant-id",
+  "x-app-user-id",
+  "x-db-token",
+  "x-app-user"        // 👈 FALTABA ESTE
+],
   exposedHeaders: ["Content-Disposition"],
 };
 
