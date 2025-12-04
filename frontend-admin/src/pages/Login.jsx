@@ -3,15 +3,37 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthProvider";
 import { setAuthIdentity } from "../services/cashApi";
-import { CookingPot, Mail, Lock, Eye, EyeOff, Loader2, AlertTriangle, Keyboard } from "lucide-react";
+import {
+  CookingPot,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Loader2,
+  AlertTriangle,
+  Keyboard,
+} from "lucide-react";
 
-const parseJwt = (t) => { try { return JSON.parse(atob(String(t).split(".")[1])); } catch { return {}; } };
+const parseJwt = (t) => {
+  try {
+    return JSON.parse(atob(String(t).split(".")[1]));
+  } catch {
+    return {};
+  }
+};
 
 function pickClaims(token, fallbackEmail) {
   const p = token ? parseJwt(token) : {};
-  const role = String(p.rol || p.app_role || p.user_role || "").toLowerCase() || "admin";
-  const rid  = p.restaurant_id ?? p.restaurantId ?? null;
-  const uid  = p.sub || p.user_id || p.uid || null;
+  const role = (
+    p.rol ||
+    p.app_role ||
+    p.user_role ||
+    p.role || // 👈 FIX: leer también `role`
+    ""
+  ).toString().toLowerCase() || "admin";
+
+  const rid = p.restaurant_id ?? p.restaurantId ?? null;
+  const uid = p.sub || p.user_id || p.uid || null;
   const mail = p.email || fallbackEmail;
   return { role, rid, uid, mail };
 }
@@ -86,18 +108,21 @@ export default function Login() {
         sessionStorage.getItem("access_token") ||
         localStorage.getItem("access_token");
 
-      // ---- FIX CLAVE: duplicar para que el interceptor de cashApi lo encuentre ----
+      // Duplicar para que el interceptor de cashApi lo encuentre
       if (dbToken) {
         localStorage.setItem("access_token", dbToken);
         localStorage.setItem("token", dbToken);
       }
 
-      // Identidad para la UI (no se envía como header)
+      // Identidad para la UI (y headers x-app-user / x-app-user-id)
       const { role, rid, uid, mail } = pickClaims(dbToken, email);
       setAuthIdentity({ email: mail, id: uid, role, restaurantId: rid });
-      const next = role === "staff"
-        ? "/mozo/cobro-efectivo"
-        : (loc.state?.from?.pathname || "/dashboard");
+
+      // Ruta según rol
+      const next =
+        role === "staff"
+          ? "/mozo/cobro-efectivo"
+          : loc.state?.from?.pathname || "/dashboard";
 
       safeNavigate(next);
     } catch (err) {
@@ -122,61 +147,117 @@ export default function Login() {
       <div className="pointer-events-none absolute -top-32 -left-32 h-[450px] w-[450px] rounded-full bg-green-400/20 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-green-400/20 blur-3xl" />
 
-      <form onSubmit={handleLogin} className="relative z-10 w-full max-w-md rounded-3xl bg-white/80 p-6 shadow-xl ring-1 ring-black/5 backdrop-blur-md" aria-busy={loading}>
+      <form
+        onSubmit={handleLogin}
+        className="relative z-10 w-full max-w-md rounded-3xl bg-white/80 p-6 shadow-xl ring-1 ring-black/5 backdrop-blur-md"
+        aria-busy={loading}
+      >
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-green-600 text-white shadow-lg shadow-green-500/20">
           <CookingPot size={32} />
         </div>
 
-        <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">MikhunApp — Panel</h1>
-        <p className="mt-1 text-center text-sm text-zinc-600">Gestiona tu menú, combos y pedidos en un solo lugar.</p>
+        <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">
+          MikhunApp — Panel
+        </h1>
+        <p className="mt-1 text-center text-sm text-zinc-600">
+          Gestiona tu menú, combos y pedidos en un solo lugar.
+        </p>
 
         {msg && (
-          <div id="login-error" role="alert" aria-live="polite" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div
+            id="login-error"
+            role="alert"
+            aria-live="polite"
+            className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{msg}</span>
           </div>
         )}
 
         <div className="mt-6 space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-zinc-700">Email</label>
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium text-zinc-700"
+            >
+              Email
+            </label>
             <div className="relative mt-1">
-              <Mail size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"/>
-              <input id="email" type="email" autoComplete="username" required autoFocus
+              <Mail
+                size={18}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+              />
+              <input
+                id="email"
+                type="email"
+                autoComplete="username"
+                required
+                autoFocus
                 className="w-full rounded-xl border border-zinc-300 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 placeholder="tu@email.com"
-                value={email} onChange={(e) => setEmail(e.target.value)} />
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-zinc-700">Contraseña</label>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-zinc-700"
+            >
+              Contraseña
+            </label>
             <div className="relative mt-1">
-              <Lock size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"/>
-              <input id="password" type={showPass ? "text" : "password"} autoComplete="current-password" required
+              <Lock
+                size={18}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+              />
+              <input
+                id="password"
+                type={showPass ? "text" : "password"}
+                autoComplete="current-password"
+                required
                 className="w-full rounded-xl border border-zinc-300 bg-white py-2.5 pl-10 pr-12 text-sm outline-none transition focus:border-green-500 focus:ring-1 focus:ring-green-500"
                 placeholder="••••••••"
-                value={password} onChange={(e) => setPassword(e.target.value)}
-                onKeyUp={(e) => setCapsOn(e.getModifierState && e.getModifierState("CapsLock"))} />
-              <button type="button" onClick={() => setShowPass((v) => !v)}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyUp={(e) =>
+                  setCapsOn(
+                    e.getModifierState && e.getModifierState("CapsLock")
+                  )
+                }
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass((v) => !v)}
                 className="absolute inset-y-0 right-0 my-auto flex items-center rounded-r-xl px-3 text-zinc-500 hover:text-zinc-800"
-                title={showPass ? "Ocultar contraseña" : "Mostrar contraseña"} tabIndex={-1}>
+                title={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+                tabIndex={-1}
+              >
                 {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            {capsOn &&
-              <div id="caps-hint" className="mt-1.5 text-xs text-amber-700 flex items-center gap-1.5">
+            {capsOn && (
+              <div
+                id="caps-hint"
+                className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700"
+              >
                 <Keyboard size={14} /> Bloq Mayús activado
               </div>
-            }
+            )}
           </div>
         </div>
 
         <div className="mt-4 flex items-center justify-between">
           <label className="inline-flex select-none items-center gap-2 text-sm text-zinc-700">
-            <input type="checkbox"
+            <input
+              type="checkbox"
               className="h-4 w-4 rounded border-zinc-300 text-green-600 focus:ring-green-500"
-              checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
             Recordarme
           </label>
         </div>
