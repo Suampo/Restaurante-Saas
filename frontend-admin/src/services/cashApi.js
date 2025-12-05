@@ -196,7 +196,8 @@ export async function listarMovimientosEfectivo({
   const est = mapEstado(estado);
   if (est) params.estado = est;
 
-  if (userId && UUID_RE.test(userId)) params.userId = userId;
+  // ✅ ahora mandamos el userId tal cual (puede ser uuid o email)
+  if (userId) params.userId = userId;
 
   const { data } = await FACT_API.get(`${ADMIN_BASE}/cash-movements`, {
     params,
@@ -204,6 +205,7 @@ export async function listarMovimientosEfectivo({
 
   return data;
 }
+
 
 // ======================================================
 // 🔑 LOGIN MOZO (CORREGIDO Y COMPLETO)

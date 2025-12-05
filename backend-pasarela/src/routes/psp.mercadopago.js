@@ -66,15 +66,28 @@ function buildWebhookUrl(restaurantId) {
 /**
  * Crea cliente de MP para UN restaurante específico (multitenant)
  * - Lee accessToken desde Supabase.psp_credentials por restaurant_id.
+ * - Si no hay en Supabase, usa MP_ACCESS_TOKEN del .env como fallback.
  */
 async function getMPForRestaurant(restaurantId) {
-  const { accessToken } = await getMpKeysForRestaurant(restaurantId);
-  if (!accessToken || accessToken.length < 30) {
+  let accessToken = null;
+
+  try {
+    const creds = await getMpKeysForRestaurant(restaurantId);
+    accessToken = creds?.accessToken || null;
+  } catch (e) {
+    console.warn(
+      '[mp] error leyendo credenciales de Supabase:',
+      e?.message || e
+    );
+  }
+
+  const token = accessToken || env('MP_ACCESS_TOKEN', '');
+  if (!token || token.length < 30) {
     const e = new Error('[mp] Access token vacío/invalid (DB/.env)');
     e.status = 500;
     throw e;
   }
-  return new MercadoPagoConfig({ accessToken });
+  return new MercadoPagoConfig({ accessToken: token });
 }
 
 /* ===== Helpers extra para calidad de integración ===== */
@@ -100,6 +113,66 @@ const MP_STATEMENT_DESCRIPTOR =
   (process.env.MP_STATEMENT_DESCRIPTOR || '').trim() || undefined;
 
 const MP_BINARY_MODE = /^(1|true)$/i.test(process.env.MP_BINARY_MODE || '');
+
+/**
+ * additional_info para mejorar aprobación
+ * - Usa metadata (items, orderItems, etc.) + datos del comprador.
+ */
+function buildAdditionalInfo(metadata = {}, { email, name } = {}) {
+  const info = {};
+
+  // ---- payer ----
+  const nameSource =
+    name || metadata.buyer_name || metadata.payer_name || '';
+  const { first_name, last_name } = splitName(nameSource);
+  const payerEmail =
+    (email || '').trim() ||
+    (metadata.email || '').trim() ||
+    (metadata.buyer_email || '').trim() ||
+    '';
+
+  const payer = {};
+  if (first_name) payer.first_name = first_name;
+  if (last_name) payer.last_name = last_name;
+  if (payerEmail) payer.email = payerEmail;
+
+  if (Object.keys(payer).length) {
+    info.payer = payer;
+  }
+
+  // ---- items ----
+  const itemsRaw =
+    metadata.items ||
+    metadata.orderItems ||
+    metadata.order_items ||
+    [];
+
+  if (Array.isArray(itemsRaw) && itemsRaw.length > 0) {
+    info.items = itemsRaw.map((it) => ({
+      id: String(
+        it.id ??
+          it.itemId ??
+          it.item_id ??
+          it.sku ??
+          ''
+      ),
+      title:
+        it.nombre ??
+        it.name ??
+        it.title ??
+        'Item',
+      quantity: Number(
+        it.cantidad ?? it.qty ?? it.quantity ?? 1
+      ),
+      unit_price: Number(
+        it.precio ?? it.price ?? it.unit_price ?? 0
+      ),
+    }));
+  }
+
+  // Si no hay nada relevante, devolvemos undefined
+  return Object.keys(info).length ? info : undefined;
+}
 
 /* ====== Notificación a backend-facturación ====== */
 async function notifyPaid({ pedidoId, payment }) {
@@ -156,6 +229,45 @@ async function notifyPaid({ pedidoId, payment }) {
 }
 
 /* ===== Rutas ===== */
+
+/* -- Public Key para frontend (multi-tenant + fallback .env) -- */
+/**
+ * GET /psp/mp/public-key?restaurantId=1
+ * Responde: { publicKey: "..." }
+ */
+router.get('/psp/mp/public-key', async (req, res) => {
+  try {
+    const restaurantId = Number(req.query.restaurantId || 0);
+
+    let publicKey = '';
+    try {
+      const creds = await getMpKeysForRestaurant(restaurantId);
+      publicKey = creds?.publicKey || '';
+    } catch (e) {
+      console.warn(
+        '[mp] error leyendo publicKey de Supabase:',
+        e?.message || e
+      );
+    }
+
+    if (!publicKey) {
+      publicKey = env('MP_PUBLIC_KEY', '');
+    }
+
+    if (!publicKey) {
+      return res
+        .status(500)
+        .json({ error: 'MP_PUBLIC_KEY no configurada para este restaurante' });
+    }
+
+    return res.json({ publicKey });
+  } catch (err) {
+    console.error('[/psp/mp/public-key]', err?.message || err);
+    return res
+      .status(500)
+      .json({ error: 'Error obteniendo public key' });
+  }
+});
 
 /* -- Preferencias (Wallet/Checkout Pro) -- */
 router.post('/psp/mp/preferences', async (req, res) => {
@@ -355,6 +467,15 @@ async function handleYape(req, res) {
           Date.now(),
       );
 
+    const nameFromMeta =
+      metadata?.buyer_name || metadata?.payer_name || '';
+    const { first_name, last_name } = splitName(nameFromMeta);
+
+    const additional_info = buildAdditionalInfo(metadata, {
+      email,
+      name: nameFromMeta,
+    });
+
     const body = {
       token,
       transaction_amount: amt,
@@ -364,11 +485,14 @@ async function handleYape(req, res) {
         email:
           (email || '').trim() ||
           `yape+${Date.now()}@example.com`,
-      }, // requerido en live
+        ...(first_name ? { first_name } : {}),
+        ...(last_name ? { last_name } : {}),
+      }, // email requerido en live
       description      : description || 'Pago con Yape',
       metadata         : { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url  : notifyUrl,
+      ...(additional_info ? { additional_info } : {}),
       ...(MP_STATEMENT_DESCRIPTOR
         ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR }
         : {}),
@@ -429,8 +553,14 @@ async function handleCard(req, res) {
       );
 
     // Enriquecemos payer si viene por metadata (opcional)
-    const nameFromMeta = metadata?.buyer_name || '';
+    const nameFromMeta =
+      metadata?.buyer_name || metadata?.payer_name || '';
     const { first_name, last_name } = splitName(nameFromMeta);
+
+    const additional_info = buildAdditionalInfo(metadata, {
+      email: formData?.payer?.email,
+      name: nameFromMeta,
+    });
 
     const body = {
       token             : formData.token,
@@ -448,6 +578,7 @@ async function handleCard(req, res) {
       metadata         : { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url  : notifyUrl,
+      ...(additional_info ? { additional_info } : {}),
       ...(MP_STATEMENT_DESCRIPTOR
         ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR }
         : {}),

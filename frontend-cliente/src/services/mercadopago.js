@@ -36,9 +36,7 @@ function getCsrfFromCookiesPsp() {
 
 function withCsrf(headers = {}) {
   const token = csrfTokenPsp || getCsrfFromCookiesPsp();
-  return token
-    ? { ...headers, "x-csrf-token": token }
-    : headers;
+  return token ? { ...headers, "x-csrf-token": token } : headers;
 }
 
 /**
@@ -87,18 +85,41 @@ function getMpSingleton() {
     const pk = window.__MP_INIT_KEY || import.meta.env.VITE_MP_PUBLIC_KEY;
     if (!window.MercadoPago || !pk) return null;
     return (window.__MP_SINGLETON =
-      window.__MP_SINGLETON ||
-      new window.MercadoPago(pk, { locale: "es-PE" }));
+      window.__MP_SINGLETON || new window.MercadoPago(pk, { locale: "es-PE" }));
   } catch {
     return null;
   }
 }
 
+/**
+ * Obtiene el Device ID de Mercado Pago.
+ * - Primero intenta mp.getDeviceId() del SDK v2.
+ * - Si no, usa las variables globales de security.js:
+ *   MP_DEVICE_SESSION_ID o mpDeviceId.
+ */
 function getMpDeviceId() {
-  const mp = getMpSingleton();
-  return mp && typeof mp.getDeviceId === "function"
-    ? mp.getDeviceId()
-    : null;
+  if (typeof window === "undefined") return null;
+
+  try {
+    const mp = getMpSingleton();
+    if (mp && typeof mp.getDeviceId === "function") {
+      const id = mp.getDeviceId();
+      if (id) return id;
+    }
+  } catch (e) {
+    console.warn("getMpDeviceId (sdk) error:", e);
+  }
+
+  // Fallback a security.js
+  try {
+    return (
+      window.MP_DEVICE_SESSION_ID ||
+      window.mpDeviceId ||
+      null
+    );
+  } catch {
+    return null;
+  }
 }
 
 /* ======= Public Key (para @mercadopago/sdk-react) ======= */
@@ -131,14 +152,23 @@ export async function payWithCardViaBrick({
   const url =
     apiPsp("/psp/mp/payments/card") + (rid ? `?restaurantId=${rid}` : "");
 
+  const baseHeaders = withCsrf({
+    "Content-Type": "application/json",
+    "X-Idempotency-Key": idem,
+  });
+
+  const deviceHeaders = deviceId
+    ? {
+        "X-Device-Session-Id": deviceId,
+        "X-Device-Id": deviceId,
+        "X-meli-session-id": deviceId,
+      }
+    : {};
+
   const res = await fetch(url, {
     method: "POST",
     credentials: "include",
-    headers: withCsrf({
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": idem,
-      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}),
-    }),
+    headers: { ...baseHeaders, ...deviceHeaders },
     body: JSON.stringify({
       amount: Number(amount),
       formData,
@@ -174,14 +204,23 @@ export async function payWithYape({
   const url =
     apiPsp("/psp/mp/payments/yape") + (rid ? `?restaurantId=${rid}` : "");
 
+  const baseHeaders = withCsrf({
+    "Content-Type": "application/json",
+    "X-Idempotency-Key": idem,
+  });
+
+  const deviceHeaders = deviceId
+    ? {
+        "X-Device-Session-Id": deviceId,
+        "X-Device-Id": deviceId,
+        "X-meli-session-id": deviceId,
+      }
+    : {};
+
   const res = await fetch(url, {
     method: "POST",
     credentials: "include",
-    headers: withCsrf({
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": idem,
-      ...(deviceId ? { "X-Device-Session-Id": deviceId } : {}),
-    }),
+    headers: { ...baseHeaders, ...deviceHeaders },
     body: JSON.stringify({
       token,
       amount: Number(amount),

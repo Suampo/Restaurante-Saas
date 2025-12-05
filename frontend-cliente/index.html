@@ -25,6 +25,15 @@
       rel="stylesheet"
     />
 
+    <!-- 🔐 Security.js de Mercado Pago para Device ID (checkout) -->
+    <!-- view="checkout" porque se usa en la pantalla de pago -->
+    <!-- output="mpDeviceId" crea window.mpDeviceId además de MP_DEVICE_SESSION_ID -->
+    <script
+      src="https://www.mercadopago.com/v2/security.js"
+      view="checkout"
+      output="mpDeviceId"
+    ></script>
+
     <title>MikhunApp Cliente</title>
   </head>
   <body class="antialiased">

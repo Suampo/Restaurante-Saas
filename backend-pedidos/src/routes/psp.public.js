@@ -10,11 +10,29 @@ const PASARELA_BASE =
   "http://localhost:5500/api";
 
 /** Utilidad de proxy JSON simple */
-async function proxyJson(req, res, path, { method = "GET", bodyObj = null } = {}) {
+async function proxyJson(
+  req,
+  res,
+  path,
+  { method = "GET", bodyObj = null } = {}
+) {
   const url = `${PASARELA_BASE.replace(/\/+$/, "")}${path}`;
-  const headers = { Accept: "application/json", "Content-Type": "application/json" };
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+
   const idem = req.get("X-Idempotency-Key");
   if (idem) headers["X-Idempotency-Key"] = idem;
+
+  // 🔐 Reenvía headers de device/antifraude hacia la PASARELA
+  const devMeli = req.get("X-meli-session-id");
+  const devSess = req.get("X-Device-Session-Id");
+  const devId = req.get("X-Device-Id");
+
+  if (devMeli) headers["X-meli-session-id"] = devMeli;
+  if (devSess) headers["X-Device-Session-Id"] = devSess;
+  if (devId) headers["X-Device-Id"] = devId;
 
   const fetchOpts = { method, headers };
   if (bodyObj) fetchOpts.body = JSON.stringify(bodyObj);
@@ -23,8 +41,11 @@ async function proxyJson(req, res, path, { method = "GET", bodyObj = null } = {}
     const r = await fetch(url, fetchOpts);
     const text = await r.text();
     res.status(r.status);
-    try { return res.json(JSON.parse(text)); }
-    catch { return res.type("application/json").send(text); }
+    try {
+      return res.json(JSON.parse(text));
+    } catch {
+      return res.type("application/json").send(text);
+    }
   } catch (e) {
     console.error("[PSP proxy error]", method, path, e);
     return res.status(502).json({ error: "Pasarela no disponible" });
@@ -34,7 +55,8 @@ async function proxyJson(req, res, path, { method = "GET", bodyObj = null } = {}
 /** GET /api/psp/mp/public-key?restaurantId=2 */
 router.get("/psp/mp/public-key", async (req, res) => {
   const restaurantId = Number(req.query.restaurantId || 0);
-  if (!restaurantId) return res.status(400).json({ error: "restaurantId requerido" });
+  if (!restaurantId)
+    return res.status(400).json({ error: "restaurantId requerido" });
   const urlPath = `/psp/mp/public-key?restaurantId=${restaurantId}`;
   return proxyJson(req, res, urlPath, { method: "GET" });
 });
