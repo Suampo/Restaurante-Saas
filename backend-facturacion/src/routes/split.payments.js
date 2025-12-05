@@ -17,6 +17,7 @@ const CASH_SALT = (process.env.CASH_PIN_SALT || "cashpin.salt").trim();
 function sha256(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
+
 function hashPin(pin, restaurantId) {
   return sha256(`${String(pin || "")}::${String(restaurantId)}::${CASH_SALT}`);
 }
@@ -57,6 +58,7 @@ async function getSaldo(pedidoId) {
     )
     .eq("id", Number(pedidoId))
     .maybeSingle();
+
   if (ePed) throw new Error(ePed.message);
   if (!ped) throw new Error("Pedido no encontrado");
 
@@ -64,6 +66,7 @@ async function getSaldo(pedidoId) {
     .from("pagos")
     .select("monto, estado")
     .eq("pedido_id", ped.id);
+
   if (ePag) throw new Error(ePag.message);
 
   const pagado = (rows || [])
@@ -170,7 +173,7 @@ async function insertCashMovement({
 }) {
   try {
     if (!restaurantId || !pagoId) return;
-    await supabase.from("cash_movements").insert([
+    const { error } = await supabase.from("cash_movements").insert([
       {
         restaurant_id: Number(restaurantId),
         drawer_id: null,
@@ -181,6 +184,9 @@ async function insertCashMovement({
         note: note || null,
       },
     ]);
+    if (error) {
+      console.warn("[cash_movements.insert] warning:", error.message);
+    }
   } catch (e) {
     console.warn("[cash_movements.insert] warning:", e?.message);
   }
@@ -288,9 +294,7 @@ router.post(
       const note = String(req.body?.note || "").slice(0, 250);
 
       if (!pin || !pagoId)
-        return res
-          .status(400)
-          .json({ error: "PIN y pagoId requeridos" });
+        return res.status(400).json({ error: "PIN y pagoId requeridos" });
 
       // Traer pago y validar que sea efectivo/cash
       const { data: pago } = await supabase
@@ -324,6 +328,7 @@ router.post(
         .select("cash_pin_hash")
         .eq("id", rid)
         .maybeSingle();
+
       if (!rest?.cash_pin_hash)
         return res.status(409).json({ error: "PIN no configurado" });
 
@@ -332,10 +337,8 @@ router.post(
 
       // Quién aprueba (prioridad: headers del front → usuario supabase → "pin")
       const headerEmail = (req.get("x-app-user") || "").trim();
-      const headerUserId = (req.get("x-app-user-id") || "").trim() || null;
       const user = await getAuthUser(req); // puede ser null si no usas Supabase Auth
       const whoEmail = headerEmail || user?.email || "pin";
-      const whoUserId = headerUserId || user?.id || null; // uuid
 
       // Recalcular cash_received/cash_change si llega "received" ahora
       let cash_received = pago.cash_received;
@@ -348,26 +351,41 @@ router.post(
             : 0;
       }
 
-      // 1) UPDATE pagos
-      await supabase
+      // 1) UPDATE pagos (con manejo de error)
+      const { data: updData, error: updError } = await supabase
         .from("pagos")
         .update({
           estado: "approved",
           approved_at: new Date().toISOString(),
-          approved_by: whoEmail,
-          approved_by_user_id: whoUserId, // 👈 clave para dashboard de Trabajadores
+          approved_by: whoEmail, // 👈 correo del mozo
+          // approved_by_user_id: lo omitimos para evitar problemas de tipo
           cash_received,
           cash_change,
           cash_note: note || null,
         })
-        .eq("id", pagoId);
+        .eq("id", pagoId)
+        .select("id");
+
+      if (updError) {
+        console.error("[cash.aprobar] error al actualizar pagos:", updError);
+        return res
+          .status(500)
+          .json({ error: "No se pudo aprobar el pago (UPDATE falló)" });
+      }
+
+      if (!updData || !updData.length) {
+        console.error("[cash.aprobar] no se encontró pago con id=", pagoId);
+        return res
+          .status(404)
+          .json({ error: "Pago no encontrado al actualizar" });
+      }
 
       // 2) INSERT movimiento de caja (no bloquear si falla)
       await insertCashMovement({
         restaurantId: rid,
         pagoId,
         amount: Number(pago.monto || 0),
-        createdBy: whoUserId,
+        createdBy: null, // evitamos problemas de tipo en created_by
         note,
       });
 
@@ -375,6 +393,7 @@ router.post(
       const out = await recomputeAndEmitIfPaid(pedidoId);
       res.json({ ok: true, ...out });
     } catch (e) {
+      console.error("[cash.aprobar] error:", e.message);
       res.status(400).json({ error: e.message });
     }
   }
