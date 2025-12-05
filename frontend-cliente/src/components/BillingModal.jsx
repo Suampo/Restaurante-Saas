@@ -483,11 +483,11 @@ function PayTabs({
   orderSummary,
   onMpApproved,
   onCashCreate,
-  buyerName,
-  buyerEmail,
 }) {
-
   const [tab, setTab] = useState("card");
+
+  const buyerName = orderInfo?.name || "";
+  const buyerEmail = orderInfo?.email || "";
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px] pb-4 min-w-0">
@@ -529,17 +529,16 @@ function PayTabs({
             } px-1 py-2 animate-in fade-in zoom-in duration-300`}
           >
             <CardBrick
-  MP={MP}
-  amountSoles={amountSoles}
-  intentId={orderInfo?.intentId}
-  restaurantId={orderInfo?.restaurantId}
-  pedidoId={orderInfo?.pedidoId}
-  buyerName={buyerName}
-  buyerEmail={buyerEmail || orderInfo?.email}
-  orderSummary={orderSummary}
-  onApproved={() => onMpApproved?.()}
-/>
-
+              MP={MP}
+              amountSoles={amountSoles}
+              intentId={orderInfo?.intentId}
+              restaurantId={orderInfo?.restaurantId}
+              pedidoId={orderInfo?.pedidoId}
+              buyerName={buyerName}
+              buyerEmail={buyerEmail}
+              orderSummary={orderSummary}
+              onApproved={() => onMpApproved?.()}
+            />
           </div>
 
           {/* Yape */}
@@ -556,17 +555,16 @@ function PayTabs({
                 Pagar con Yape
               </h3>
             </div>
-           <YapeForm
-  amountSoles={amountSoles}
-  intentId={orderInfo?.intentId}
-  restaurantId={orderInfo?.restaurantId}
-  pedidoId={orderInfo?.pedidoId}
-  buyerEmail={buyerEmail || orderInfo?.email}
-  buyerName={buyerName}
-  orderSummary={orderSummary}
-  onApproved={() => onMpApproved?.()}
-/>
-
+            <YapeForm
+              amountSoles={amountSoles}
+              intentId={orderInfo?.intentId}
+              restaurantId={orderInfo?.restaurantId}
+              pedidoId={orderInfo?.pedidoId}
+              buyerEmail={buyerEmail}
+              buyerName={buyerName}
+              orderSummary={orderSummary}
+              onApproved={() => onMpApproved?.()}
+            />
           </div>
 
           {/* Efectivo */}
@@ -579,11 +577,14 @@ function PayTabs({
               <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                 <IconCash />
               </div>
-              <h3 className="text-lg font-bold text-gray-900">Pagar en Efectivo</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                Pagar en Efectivo
+              </h3>
             </div>
             <p className="text-gray-600 text-sm mb-6">
-              Generaremos tu pedido y quedará pendiente. Porfavor dale a "Confirmar " y muestra al
-              mozo el número de tu pedido para realizar el cobro.
+              Generaremos tu pedido y quedará pendiente. Porfavor dale a
+              "Confirmar " y muestra al mozo el número de tu pedido para
+              realizar el cobro.
             </p>
             <button
               type="button"
@@ -760,17 +761,16 @@ function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
 }
 /* ===================== CARD BRICK ===================== */
 const CardBrick = React.memo(function CardBrick({
-  MP,
+  MP, // compat
   amountSoles,
   intentId,
   restaurantId,
   pedidoId,
+  buyerName,
+  buyerEmail,
+  orderSummary,
   onApproved,
-  orderSummary = [],
-  buyerName = "",
-  buyerEmail = "",
 }) {
-
   const [ready, setReady] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
@@ -806,8 +806,7 @@ const CardBrick = React.memo(function CardBrick({
           }));
 
         const bricksBuilder =
-          window.__MP_BRICKS_BUILDER ||
-          (window.__MP_BRICKS_BUILDER = mp.bricks());
+          window.__MP_BRICKS_BUILDER || (window.__MP_BRICKS_BUILDER = mp.bricks());
 
         // 🔴 IMPORTANTE: si quedó un Brick anterior, lo desmontamos antes de crear otro
         if (cardBrickController?.unmount) {
@@ -840,34 +839,45 @@ const CardBrick = React.memo(function CardBrick({
                     return reject(new Error("Token no generado"));
                   }
 
-                  const resp = await payWithCardViaBrick({
-  amount: Number(amountSoles),
-  formData: {
-    token: fd.token,
-    payment_method_id: fd.payment_method_id,
-    issuer_id: fd.issuer_id,
-    installments: Number(fd.installments || 1),
-    payer: {
-      email: fd?.payer?.email || "",
-      identification: fd?.payer?.identification,
-    },
-  },
-  description: `Pedido ${pedidoId ?? "-"}`,
-  metadata: {
-    intentId,
-    restaurantId,
-    pedidoId,
-    buyer_name: buyerName,
-    email: fd?.payer?.email || buyerEmail || "",
-    // orderSummary ya tiene { name, qty, price }
-    // el backend lo mapea a items de additional_info
-    items: orderSummary,
-  },
-  idempotencyKey: String(
-    intentId || pedidoId || Date.now()
-  ),
-});
+                  // Construimos los items para metadata
+                  const items =
+                    Array.isArray(orderSummary) && orderSummary.length
+                      ? orderSummary.map((it, idx) => ({
+                          id: it.id ?? it.itemId ?? `item-${idx + 1}`,
+                          name: it.name,
+                          title: it.name,
+                          descripcion: it.name,
+                          category_id:
+                            it.category_id || "restaurant_item",
+                          qty: Number(it.qty || 1),
+                          price: Number(it.price || 0),
+                        }))
+                      : [];
 
+                  const resp = await payWithCardViaBrick({
+                    amount: Number(amountSoles),
+                    formData: {
+                      token: fd.token,
+                      payment_method_id: fd.payment_method_id,
+                      issuer_id: fd.issuer_id,
+                      installments: Number(fd.installments || 1),
+                      payer: {
+                        email: fd?.payer?.email || buyerEmail || "",
+                        identification: fd?.payer?.identification,
+                      },
+                    },
+                    description: `Pedido ${pedidoId ?? "-"}`,
+                    metadata: {
+                      intentId,
+                      restaurantId,
+                      pedidoId,
+                      buyer_name: buyerName || "",
+                      buyer_email:
+                        buyerEmail || fd?.payer?.email || "",
+                      items,
+                    },
+                    idempotencyKey: String(intentId || pedidoId || Date.now()),
+                  });
 
                   if (resp?.status === "approved") onApproved?.();
                   else alert(`Estado: ${resp?.status}`);
@@ -918,11 +928,7 @@ const CardBrick = React.memo(function CardBrick({
 
   return (
     <div className="w-full min-w-0">
-      <div
-        id={brickId}
-        className="w-full"
-        style={{ width: "100%", minWidth: 0 }}
-      />
+      <div id={brickId} className="w-full" style={{ width: "100%", minWidth: 0 }} />
       {!ready && !errMsg && (
         <div className="flex items-center justify-center h-48 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
           Cargando tarjeta...
@@ -934,6 +940,7 @@ const CardBrick = React.memo(function CardBrick({
     </div>
   );
 });
+
 
 /* ===================== LOADER LAZY DEL SDK v2 (YAPE) ===================== */
 
@@ -985,10 +992,9 @@ function YapeForm({
   pedidoId,
   buyerEmail,
   buyerName,
-  orderSummary = [],
+  orderSummary,
   onApproved,
 }) {
-
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1025,22 +1031,34 @@ function YapeForm({
       const yape = mp.yape({ phoneNumber: phone, otp });
       const { id: token } = await yape.create();
 
-      const resp = await payWithYape({
-  token,
-  amount: amt,
-  email: buyerEmail || "yape@temp.com",
-  description: `Pedido ${pedidoId}`,
-  metadata: {
-    intentId,
-    restaurantId,
-    pedidoId,
-    buyer_name: buyerName,
-    email: buyerEmail,
-    items: orderSummary,
-  },
-  idempotencyKey: String(Date.now()),
-});
+      const items =
+        Array.isArray(orderSummary) && orderSummary.length
+          ? orderSummary.map((it, idx) => ({
+              id: it.id ?? it.itemId ?? `item-${idx + 1}`,
+              name: it.name,
+              title: it.name,
+              descripcion: it.name,
+              category_id: it.category_id || "restaurant_item",
+              qty: Number(it.qty || 1),
+              price: Number(it.price || 0),
+            }))
+          : [];
 
+      const resp = await payWithYape({
+        token,
+        amount: amt,
+        email: buyerEmail || "yape@temp.com",
+        description: `Pedido ${pedidoId}`,
+        metadata: {
+          intentId,
+          restaurantId,
+          pedidoId,
+          buyer_name: buyerName || "",
+          buyer_email: buyerEmail || "",
+          items,
+        },
+        idempotencyKey: String(Date.now()),
+      });
 
       if (resp?.status === "approved") onApproved?.();
       else alert(`Estado: ${resp?.status}`);
@@ -1072,7 +1090,9 @@ function YapeForm({
         <FloatingInput
           label="Código de aprobación Yape"
           value={otp}
-          onChange={(v) => setOtp(String(v).replace(/\D+/g, "").slice(0, 6))}
+          onChange={(v) =>
+            setOtp(String(v).replace(/\D+/g, "").slice(0, 6))
+          }
           placeholder="6 dígitos"
           inputMode="numeric"
           required

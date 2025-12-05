@@ -115,26 +115,21 @@ const MP_STATEMENT_DESCRIPTOR =
 const MP_BINARY_MODE = /^(1|true)$/i.test(process.env.MP_BINARY_MODE || '');
 
 /**
- * additional_info para mejorar aprobación (principalmente en tarjeta)
- * - Usa metadata (items, orderItems, etc.) + datos del comprador.
+ * additional_info para mejorar aprobación
+ * - Usa metadata (items, orderItems, etc.) + nombre del comprador.
+ * - IMPORTANTE: NO enviar additional_info.payer.email (MP lo marca como parámetro inválido).
  */
-function buildAdditionalInfo(metadata = {}, { email, name } = {}) {
+function buildAdditionalInfo(metadata = {}, { name } = {}) {
   const info = {};
 
-  // ---- payer ----
+  // ---- payer (solo nombre, sin email) ----
   const nameSource =
     name || metadata.buyer_name || metadata.payer_name || '';
   const { first_name, last_name } = splitName(nameSource);
-  const payerEmail =
-    (email || '').trim() ||
-    (metadata.email || '').trim() ||
-    (metadata.buyer_email || '').trim() ||
-    '';
 
   const payer = {};
   if (first_name) payer.first_name = first_name;
   if (last_name) payer.last_name = last_name;
-  if (payerEmail) payer.email = payerEmail;
 
   if (Object.keys(payer).length) {
     info.payer = payer;
@@ -148,31 +143,55 @@ function buildAdditionalInfo(metadata = {}, { email, name } = {}) {
     [];
 
   if (Array.isArray(itemsRaw) && itemsRaw.length > 0) {
-    info.items = itemsRaw.map((it) => ({
-      id: String(
-        it.id ??
-        it.itemId ??
-        it.item_id ??
-        it.sku ??
-        ''
-      ),
-      title:
-        it.nombre ??
-        it.name ??
-        it.title ??
-        'Item',
-      quantity: Number(
-        it.cantidad ?? it.qty ?? it.quantity ?? 1
-      ),
-      unit_price: Number(
-        it.precio ?? it.price ?? it.unit_price ?? 0
-      ),
-    }));
+    info.items = itemsRaw.map((it, idx) => {
+      const item = {
+        id: String(
+          it.id ??
+          it.itemId ??
+          it.item_id ??
+          it.sku ??
+          `item-${idx + 1}`
+        ),
+        title:
+          it.nombre ??
+          it.name ??
+          it.title ??
+          'Item',
+        description:
+          it.descripcion ??
+          it.description ??
+          it.nombre ??
+          it.name ??
+          undefined,
+        category_id:
+          it.category_id ??
+          it.categoryId ??
+          'others',
+        quantity: Number(
+          it.cantidad ?? it.qty ?? it.quantity ?? 1
+        ),
+        unit_price: Number(
+          it.precio ?? it.price ?? it.unit_price ?? 0
+        ),
+      };
+
+      // limpiamos undefined / NaN
+      Object.keys(item).forEach((k) => {
+        if (
+          item[k] === undefined ||
+          (typeof item[k] === 'number' && Number.isNaN(item[k]))
+        ) {
+          delete item[k];
+        }
+      });
+
+      return item;
+    });
   }
 
-  // Si no hay nada relevante, devolvemos undefined
   return Object.keys(info).length ? info : undefined;
 }
+
 
 /* ====== Notificación a backend-facturación ====== */
 async function notifyPaid({ pedidoId, payment }) {
