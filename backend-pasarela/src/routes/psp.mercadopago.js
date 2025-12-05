@@ -83,9 +83,9 @@ async function getMPForRestaurant(restaurantId) {
 
   const token = accessToken || env('MP_ACCESS_TOKEN', '');
   if (!token || token.length < 30) {
-    const e = new Error('[mp] Access token vacío/invalid (DB/.env)');
-    e.status = 500;
-    throw e;
+    const err = new Error('[mp] Access token vacío/invalid (DB/.env)');
+    err.status = 500;
+    throw err;
   }
   return new MercadoPagoConfig({ accessToken: token });
 }
@@ -115,7 +115,7 @@ const MP_STATEMENT_DESCRIPTOR =
 const MP_BINARY_MODE = /^(1|true)$/i.test(process.env.MP_BINARY_MODE || '');
 
 /**
- * additional_info para mejorar aprobación
+ * additional_info para mejorar aprobación (principalmente en tarjeta)
  * - Usa metadata (items, orderItems, etc.) + datos del comprador.
  */
 function buildAdditionalInfo(metadata = {}, { email, name } = {}) {
@@ -151,10 +151,10 @@ function buildAdditionalInfo(metadata = {}, { email, name } = {}) {
     info.items = itemsRaw.map((it) => ({
       id: String(
         it.id ??
-          it.itemId ??
-          it.item_id ??
-          it.sku ??
-          ''
+        it.itemId ??
+        it.item_id ??
+        it.sku ??
+        ''
       ),
       title:
         it.nombre ??
@@ -430,6 +430,11 @@ router.post(
             notifyPaid({ pedidoId, payment }),
           );
         }
+
+        // Ejemplo de uso de setPedidoSunatEstado si quisieras más adelante:
+        // if (payment.status === 'approved' && pedidoId) {
+        //   await setPedidoSunatEstado(pedidoId, 'aprobado');
+        // }
       }
 
       return res.sendStatus(200);
@@ -446,18 +451,28 @@ async function handleYape(req, res) {
   try {
     const { token, amount, email, description, metadata = {} } =
       req.body || {};
-    if (!token)
+
+    if (!token) {
       return res.status(400).json({ error: 'token requerido (Yape)' });
+    }
 
     const amt = Math.round(Number(amount) * 100) / 100;
-    if (!(amt > 0))
+    if (!(amt > 0)) {
       return res.status(400).json({ error: 'amount inválido' });
+    }
 
     const restaurantId = Number(
       metadata.restaurantId || req.query.restaurantId || 0,
     );
+    if (!restaurantId) {
+      return res
+        .status(400)
+        .json({ error: 'restaurantId requerido (Yape)' });
+    }
+
     const mp = await getMPForRestaurant(restaurantId);
     const notifyUrl = buildWebhookUrl(restaurantId);
+
     const idem =
       req.get('X-Idempotency-Key') ||
       req.get('x-idempotency-key') ||
@@ -467,42 +482,31 @@ async function handleYape(req, res) {
           Date.now(),
       );
 
-    const nameFromMeta =
-      metadata?.buyer_name || metadata?.payer_name || '';
-    const { first_name, last_name } = splitName(nameFromMeta);
-
-    const additional_info = buildAdditionalInfo(metadata, {
-      email,
-      name: nameFromMeta,
-    });
-
+    // Payload limpio para Yape: solo campos soportados por MP en este flujo
     const body = {
       token,
       transaction_amount: amt,
       installments      : 1,
       payment_method_id : 'yape',
       payer: {
+        // MP exige email en live, aunque sea dummy
         email:
           (email || '').trim() ||
           `yape+${Date.now()}@example.com`,
-        ...(first_name ? { first_name } : {}),
-        ...(last_name ? { last_name } : {}),
-      }, // email requerido en live
+      },
       description      : description || 'Pago con Yape',
       metadata         : { ...metadata, restaurantId },
       external_reference: String(metadata?.pedidoId || ''),
       notification_url  : notifyUrl,
-      ...(additional_info ? { additional_info } : {}),
-      ...(MP_STATEMENT_DESCRIPTOR
-        ? { statement_descriptor: MP_STATEMENT_DESCRIPTOR }
-        : {}),
-      ...(MP_BINARY_MODE ? { binary_mode: true } : {}),
+      // NO enviamos additional_info, statement_descriptor ni binary_mode
+      // para evitar errores "The name of the parameters is wrong".
     };
 
     const payment = await new Payment(mp).create(
       { body },
       { idempotencyKey: idem, headers: mpHeadersFromReq(req) },
     );
+
     return res.status(201).json({
       id           : payment.id,
       status       : payment.status,
@@ -529,20 +533,30 @@ async function handleCard(req, res) {
   try {
     const { formData, amount, description, metadata = {} } =
       req.body || {};
-    if (!formData?.token)
+
+    if (!formData?.token) {
       return res
         .status(400)
         .json({ error: 'token requerido (tarjeta)' });
+    }
 
     const amt = Math.round(Number(amount) * 100) / 100;
-    if (!(amt > 0))
+    if (!(amt > 0)) {
       return res.status(400).json({ error: 'amount inválido' });
+    }
 
     const restaurantId = Number(
       metadata.restaurantId || req.query.restaurantId || 0,
     );
+    if (!restaurantId) {
+      return res
+        .status(400)
+        .json({ error: 'restaurantId requerido (tarjeta)' });
+    }
+
     const mp = await getMPForRestaurant(restaurantId);
     const notifyUrl = buildWebhookUrl(restaurantId);
+
     const idem =
       req.get('X-Idempotency-Key') ||
       req.get('x-idempotency-key') ||
@@ -589,6 +603,7 @@ async function handleCard(req, res) {
       { body },
       { idempotencyKey: idem, headers: mpHeadersFromReq(req) },
     );
+
     return res.status(201).json({
       id           : payment.id,
       status       : payment.status,
