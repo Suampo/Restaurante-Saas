@@ -62,6 +62,7 @@ allowedHeaders: [
   "x-csrf-token",
   "authorization",
   "x-restaurant-id",
+  "x-app-restaurant-id",
   "x-app-user-id",
   "x-db-token",
   "x-app-user"        // 👈 FALTABA ESTE
