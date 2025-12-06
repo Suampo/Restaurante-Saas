@@ -1,7 +1,10 @@
 // backend-facturacion/src/routes/admin.cash.js
+"use strict";
+
 const express = require("express");
 const router = express.Router();
 const { supabase } = require("../services/supabase");
+const { getAuthUser } = require("../utils/authUser");
 
 // Utilidades de rango inclusivo por fecha (local->ISO)
 function toStartISO(d) {
@@ -14,14 +17,49 @@ function toEndISO(d) {
 const UUID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Resuelve el restaurantId a partir de:
+ *  - x-app-restaurant-id
+ *  - x-restaurant-id
+ *  - claims del token (getAuthUser)
+ */
+async function resolveRestaurantId(req) {
+  const hdr =
+    req.get("x-app-restaurant-id") ||
+    req.get("x-restaurant-id") ||
+    req.query.restaurantId;
+
+  if (hdr) {
+    const n = Number(hdr);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+
+  try {
+    const user = await getAuthUser(req);
+    const rid = user?.restaurantId || user?.restaurant_id;
+    if (rid) return Number(rid);
+  } catch {
+    // ignoramos error; devolveremos 0 más abajo
+  }
+
+  return 0;
+}
+
 router.get("/cash-movements", async (req, res) => {
   try {
+    const restaurantId = await resolveRestaurantId(req);
+    if (!restaurantId) {
+      return res
+        .status(401)
+        .json({ error: "RestaurantId no definido en la sesión" });
+    }
+
     const { start, end, estado = "all", userId } = req.query;
 
     const startISO = toStartISO(start);
     const endISO = toEndISO(end);
 
-    // ---------- 1) Lista base (para "Mov. efectivo") ----------
+    // ---------- 1) Lista base (para "Mov. efectivo" y detalle) ----------
     let q = supabase
       .from("pagos")
       .select(
@@ -32,7 +70,8 @@ router.get("/cash-movements", async (req, res) => {
         { count: "exact" }
       )
       .eq("metodo", "efectivo")
-      .eq("psp", "cash");
+      .eq("psp", "cash")
+      .eq("restaurant_id", restaurantId); // 👈 clave: SOLO este restaurante
 
     if (startISO) q = q.gte("created_at", startISO);
     if (endISO) q = q.lte("created_at", endISO);
@@ -53,6 +92,8 @@ router.get("/cash-movements", async (req, res) => {
     const rows = (rowsRaw || []).map((r) => ({
       ...r,
       pedido_numero: r.pedido?.order_no ?? r.pedido_numero ?? null,
+      amount: Number(r.monto || 0), // compat con front
+      note: r.cash_note || null,
     }));
 
     // ---------- 2) Stats de cabecera ----------
@@ -95,6 +136,7 @@ router.get("/cash-movements", async (req, res) => {
       const email = r.approved_by || null;
       const cur = byMap.get(key) || {
         userId: key,
+        user_id: r.approved_by_user_id || null, // compat con tu front
         email,
         name: null, // lo llenamos con usuarios.nombre
         aprobaciones: 0,
@@ -149,7 +191,9 @@ router.get("/cash-movements", async (req, res) => {
           created_at: r.created_at,
         }))
         .sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          (a, b) =>
+            new Date(b.created_at).getTime() -
+            new Date(a.created_at).getTime()
         );
     }
 
