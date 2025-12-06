@@ -88,7 +88,7 @@ const labelFechaByDate = (d) => {
   if (!d) return "";
   const kEvent = dayKeyLima(d);
   const kToday = todayLimaISO();
-  const kYday = toNextDayISO(todayLimaISO()); // hoy+1 en UTC no sirve; mejor restar 1 día en Lima:
+
   // recalculamos “ayer” Lima correctamente:
   const y = new Date(`${kToday}T00:00:00-05:00`);
   y.setDate(y.getDate() - 1);
@@ -132,7 +132,9 @@ function getPaidDate(p) {
     null;
   if (pagosArr) {
     for (const pg of pagosArr) {
-      const d = parseDBDateUTC(pg?.approved_at || pg?.approvedAt || pg?.created_at);
+      const d = parseDBDateUTC(
+        pg?.approved_at || pg?.approvedAt || pg?.created_at
+      );
       if (d && (!best || d > best)) best = d;
     }
   }
@@ -184,13 +186,24 @@ function StatusBadge({ status }) {
       }`}
       title={`Socket: ${status}`}
     >
-      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "bg-slate-400"}`} />
+      <span
+        className={`h-2 w-2 rounded-full ${
+          ok ? "bg-emerald-500" : "bg-slate-400"
+        }`}
+      />
       {status}
     </span>
   );
 }
 
-function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, loading }) {
+function PedidosHeader({
+  stats,
+  filters,
+  onFilterChange,
+  onRefresh,
+  onExport,
+  loading,
+}) {
   const { status, totalPedidos, totalMonto } = stats;
   const { day } = filters;
 
@@ -198,8 +211,12 @@ function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, lo
     <div>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Historial de Pedidos</h1>
-          <p className="text-zinc-500">Consulta los detalles de los pedidos pagados.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">
+            Historial de Pedidos
+          </h1>
+          <p className="text-zinc-500">
+            Consulta los detalles de los pedidos pagados.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={status} />
@@ -208,20 +225,28 @@ function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, lo
             disabled={loading || totalPedidos === 0}
             className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
           >
-            <Download size={16} /> <span className="hidden sm:inline">Exportar</span>
+            <Download size={16} />{" "}
+            <span className="hidden sm:inline">Exportar</span>
           </button>
           <button
             onClick={onRefresh}
             disabled={loading}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50"
           >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Actualizar
+            <RefreshCw
+              size={16}
+              className={loading ? "animate-spin" : ""}
+            />{" "}
+            Actualizar
           </button>
         </div>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 md:grid-cols-4">
         <div className="sm:col-span-2 md:col-span-2">
-          <label htmlFor="date-filter" className="mb-1 block text-sm font-medium text-zinc-700">
+          <label
+            htmlFor="date-filter"
+            className="mb-1 block text-sm font-medium text-zinc-700"
+          >
             Filtrar por fecha
           </label>
           <div className="flex items-center gap-2">
@@ -246,8 +271,18 @@ function PedidosHeader({ stats, filters, onFilterChange, onRefresh, onExport, lo
             </button>
           </div>
         </div>
-        <StatCard icon={ListOrdered} label="Pedidos en el día" value={totalPedidos} loading={false} />
-        <StatCard icon={CircleDollarSign} label="Monto Total" value={totalMonto} loading={false} />
+        <StatCard
+          icon={ListOrdered}
+          label="Pedidos en el día"
+          value={totalPedidos}
+          loading={false}
+        />
+        <StatCard
+          icon={CircleDollarSign}
+          label="Monto Total"
+          value={totalMonto}
+          loading={false}
+        />
       </div>
     </div>
   );
@@ -257,6 +292,12 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
   const d = pedido._eventAt || parseDBDateUTC(pedido.created_at);
   const hora = fmtHoraLima(d);
 
+  const numeroVisual =
+    pedido.numero ??
+    pedido.order_no ??
+    pedido.orderNo ??
+    pedido.id;
+
   return (
     <div className="rounded-2xl bg-white/80 shadow-lg shadow-zinc-200/50 backdrop-blur-lg transition-all">
       <div
@@ -264,7 +305,9 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
         onClick={() => onToggle(pedido.id)}
       >
         <div>
-          <p className="font-semibold text-zinc-900">Pedido #{pedido.numero ?? pedido.id}</p>
+          <p className="font-semibold text-zinc-900">
+            Pedido #{numeroVisual}
+          </p>
           <p className="text-sm text-zinc-500">
             Mesa {pedido.mesa?.nombre || pedido.mesa} • {hora}
           </p>
@@ -276,32 +319,44 @@ function PedidoCard({ pedido, isExpanded, onToggle }) {
             </span>
             <p className="mt-1 font-semibold text-zinc-900">
               {PEN.format(
-    Number(
-      pedido.monto ??
-      pedido.total ??
-      pedido.total_pedido ??
-      0
-    )
-  )}
+                Number(
+                  pedido.monto ??
+                    pedido.total ??
+                    pedido.total_pedido ??
+                    0
+                )
+              )}
             </p>
           </div>
           <ChevronDown
             size={20}
-            className={`text-zinc-500 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+            className={`text-zinc-500 transition-transform duration-300 ${
+              isExpanded ? "rotate-180" : ""
+            }`}
           />
         </div>
       </div>
       {isExpanded && (
         <div className="border-t border-zinc-200 p-4">
-          <h4 className="mb-2 font-semibold text-zinc-700">Detalle del pedido:</h4>
+          <h4 className="mb-2 font-semibold text-zinc-700">
+            Detalle del pedido:
+          </h4>
           <ul className="space-y-2 text-sm">
             {(pedido.items || pedido.detalle || []).map((it, i) => (
-              <li key={i} className="flex items-start justify-between gap-2">
+              <li
+                key={i}
+                className="flex items-start justify-between gap-2"
+              >
                 <p className="text-zinc-600">
-                  <span className="font-medium text-zinc-800">{it.cantidad}×</span> {it.nombre}
+                  <span className="font-medium text-zinc-800">
+                    {it.cantidad}×
+                  </span>{" "}
+                  {it.nombre}
                 </p>
                 <p className="font-mono font-medium text-zinc-800">
-                  {PEN.format(Number(it.importe ?? it.precio_unitario ?? 0))}
+                  {PEN.format(
+                    Number(it.importe ?? it.precio_unitario ?? 0)
+                  )}
                 </p>
               </li>
             ))}
@@ -367,7 +422,7 @@ export default function Pedidos() {
       const params = {
         estado: "pagado",
         from, // ISO UTC con 'Z'
-        to,   // [from, to)
+        to, // [from, to)
         expand: "pagos",
       };
 
@@ -377,9 +432,13 @@ export default function Pedidos() {
       const norm = arr.map((p) => ({ ...p, _eventAt: getPaidDate(p) }));
       setAllPedidos(norm);
     } catch (err) {
-      const msg = err?.response?.data?.message || err?.message || "Error";
+      const msg =
+        err?.response?.data?.message || err?.message || "Error";
       setError(msg);
-      console.error("Error cargando pedidos:", err?.response?.data || err);
+      console.error(
+        "Error cargando pedidos:",
+        err?.response?.data || err
+      );
     } finally {
       setLoading(false);
     }
@@ -416,34 +475,51 @@ export default function Pedidos() {
     const start = new Date(`${day}T00:00:00-05:00`).getTime();
     const end = new Date(`${toNextDayISO(day)}T00:00:00-05:00`).getTime();
     return allPedidos.filter((p) => {
-      const d = (p._eventAt || parseDBDateUTC(p.created_at))?.getTime?.() ?? 0;
+      const d =
+        (p._eventAt || parseDBDateUTC(p.created_at))?.getTime?.() ?? 0;
       return d >= start && d < end;
     });
   }, [allPedidos, day]);
 
   const totalFiltered = filtered.length;
   const totalMonto = useMemo(
-  () => filtered.reduce((acc, p) => acc + Number(p.monto ?? p.total ?? p.total_pedido ?? 0), 0),
-  [filtered]
-);
+    () =>
+      filtered.reduce(
+        (acc, p) =>
+          acc +
+          Number(p.monto ?? p.total ?? p.total_pedido ?? 0),
+        0
+      ),
+    [filtered]
+  );
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filtered.length / perPage)
+  );
   const pageItems = useMemo(() => {
     const start = (page - 1) * perPage;
     return filtered.slice(start, start + perPage);
   }, [filtered, page, perPage]);
 
-  const grupos = useMemo(() => groupByDayByEvent(pageItems), [pageItems]);
+  const grupos = useMemo(
+    () => groupByDayByEvent(pageItems),
+    [pageItems]
+  );
 
-  const toggle = (id) => setExpanded((s) => ({ ...s, [id]: !s[id] }));
-  const goPrev = () => setPage((p) => Math.max(1, p - 1));
-  const goNext = () => setPage((p) => Math.min(pageCount, p + 1));
+  const toggle = (id) =>
+    setExpanded((s) => ({ ...s, [id]: !s[id] }));
+  const goPrev = () =>
+    setPage((p) => Math.max(1, p - 1));
+  const goNext = () =>
+    setPage((p) => Math.min(pageCount, p + 1));
 
   const exportCsv = () => {
     console.log("Export CSV - pendiente");
   };
 
-  const showingStart = totalFiltered === 0 ? 0 : (page - 1) * perPage + 1;
+  const showingStart =
+    totalFiltered === 0 ? 0 : (page - 1) * perPage + 1;
   const showingEnd = Math.min(totalFiltered, page * perPage);
 
   return (
@@ -451,9 +527,17 @@ export default function Pedidos() {
       <div className="absolute inset-0 -z-10 bg-zinc-50" />
 
       <PedidosHeader
-        stats={{ status, totalPedidos: totalFiltered, totalMonto: PEN.format(totalMonto) }}
+        stats={{
+          status,
+          totalPedidos: totalFiltered,
+          totalMonto: PEN.format(totalMonto),
+        }}
         filters={{ day, perPage }}
-        onFilterChange={(key, value) => (key === "day" ? setDay(value) : setPerPage(Number(value)))}
+        onFilterChange={(key, value) =>
+          key === "day"
+            ? setDay(value)
+            : setPerPage(Number(value))
+        }
         onRefresh={() => fetchPedidos(true)}
         onExport={exportCsv}
         loading={loading}
@@ -462,17 +546,26 @@ export default function Pedidos() {
       {loading ? (
         <PedidosSkeleton />
       ) : error ? (
-        <div className="py-10 text-center text-rose-600">{error}</div>
+        <div className="py-10 text-center text-rose-600">
+          {error}
+        </div>
       ) : totalFiltered === 0 ? (
         <EmptyPedidos />
       ) : (
         <div className="space-y-4">
           {grupos.map((g) => (
             <div key={g.label}>
-              <h2 className="mb-2 font-semibold text-zinc-800">{g.label}</h2>
+              <h2 className="mb-2 font-semibold text-zinc-800">
+                {g.label}
+              </h2>
               <div className="space-y-3">
                 {g.list.map((p) => (
-                  <PedidoCard key={p.id} pedido={p} isExpanded={!!expanded[p.id]} onToggle={toggle} />
+                  <PedidoCard
+                    key={p.id}
+                    pedido={p}
+                    isExpanded={!!expanded[p.id]}
+                    onToggle={toggle}
+                  />
                 ))}
               </div>
             </div>
@@ -518,9 +611,12 @@ const PedidosSkeleton = () => (
 const EmptyPedidos = () => (
   <div className="rounded-2xl bg-white/70 px-6 py-20 text-center shadow-lg shadow-zinc-200/50 backdrop-blur-lg">
     <Archive size={48} className="mx-auto text-zinc-400" />
-    <h3 className="mt-4 text-lg font-semibold text-zinc-800">No se encontraron pedidos</h3>
+    <h3 className="mt-4 text-lg font-semibold text-zinc-800">
+      No se encontraron pedidos
+    </h3>
     <p className="mt-2 text-sm text-zinc-500">
-      No hay pedidos pagados para la fecha seleccionada. Intenta con otro día.
+      No hay pedidos pagados para la fecha seleccionada. Intenta con
+      otro día.
     </p>
   </div>
 );

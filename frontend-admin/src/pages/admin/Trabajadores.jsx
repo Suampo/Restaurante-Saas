@@ -102,7 +102,9 @@ export default function Trabajadores() {
 
       setByWorker(Array.isArray(data?.byWorker) ? data.byWorker : []);
 
-      const startDisp = data?.range?.start ? toEs(data.range.start) : startYMD;
+      const startDisp = data?.range?.start
+        ? toEs(data.range.start)
+        : startYMD;
       let endDisp = endYMD;
       if (data?.range?.end) {
         const endIso = new Date(data.range.end);
@@ -117,7 +119,9 @@ export default function Trabajadores() {
       setByWorker([]);
       setSelUser(null);
       setErr(
-        e?.response?.data?.error || e.message || "Error al cargar"
+        e?.response?.data?.error ||
+          e.message ||
+          "Error al cargar"
       );
     } finally {
       setLoading(false);
@@ -394,7 +398,11 @@ export default function Trabajadores() {
                         )}
                       </td>
                       <td className="px-4 py-2">
-                        {m.pedido_id ?? m.pedidoId ?? "-"}
+                        {m.pedido_numero ??
+                          m.pedido_order_no ??
+                          m.pedido_id ??
+                          m.pedidoId ??
+                          "-"}
                       </td>
                       <td className="px-4 py-2 break-words">
                         {m.cash_note || m.note || (
