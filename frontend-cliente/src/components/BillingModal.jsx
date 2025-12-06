@@ -91,6 +91,20 @@ export default function BillingModal({
     [orderInfo?.amount]
   );
 
+  // 👇 Número "bonito" de pedido (por restaurante) para mostrar en la UI
+  const pedidoNumeroBase = useMemo(() => {
+    const o = orderInfo || {};
+    return (
+      o.numero ??
+      o.orderNumber ??
+      o.order_no ??
+      o.pedidoNumero ??
+      o.pedido_numero ??
+      o.pedidoId ??
+      null
+    );
+  }, [orderInfo]);
+
   const isSunatBoleta = mode === "sunat" && comprobante === "boleta";
   const isSunatFactura = mode === "sunat" && comprobante === "factura";
   const isSimple = mode === "simple";
@@ -137,17 +151,26 @@ export default function BillingModal({
     onClose?.();
   };
 
+  // ✅ Pago con tarjeta aprobado
   const showSuccess = (amount) => {
     setSuccess({
       amount: Number(amount || amountSoles || 0),
-      pedidoId: orderInfo?.pedidoId || null,
+      pedidoNumero: pedidoNumeroBase,
     });
   };
 
-  const showCashCreated = ({ amount, pedidoId }) => {
+  // ✅ Pedido generado para pago en efectivo
+  const showCashCreated = ({ amount, pedidoId, pedidoNumero }) => {
+    const visual =
+      pedidoNumero ??
+      pedidoNumeroBase ??
+      pedidoId ??
+      orderInfo?.pedidoId ??
+      null;
+
     setCashCreated({
       amount: Number(amount || amountSoles || 0),
-      pedidoId: pedidoId ?? orderInfo?.pedidoId ?? null,
+      pedidoNumero: visual,
     });
   };
 
@@ -222,7 +245,7 @@ export default function BillingModal({
           {success ? (
             <SuccessView
               amount={success.amount}
-              pedidoId={success.pedidoId}
+              pedidoNumero={success.pedidoNumero}
               orderSummary={orderSummary}
               note={orderNote}
               onClose={onClose}
@@ -230,39 +253,44 @@ export default function BillingModal({
           ) : cashCreated ? (
             <CashCreatedView
               amount={cashCreated.amount}
-              pedidoId={cashCreated.pedidoId}
+              pedidoNumero={cashCreated.pedidoNumero}
               orderSummary={orderSummary}
               note={orderNote}
               onClose={onClose}
             />
           ) : showCard && orderInfo ? (
-  <PayTabs
-    MP={MP}
-    amountSoles={amountSoles}
-    orderInfo={orderInfo}
-    buyerName={name}
-    buyerEmail={email}
-    onBackToForm={async () => {
-      if (!success && orderInfo?.intentId) {
-        try {
-          await abandonarIntent(orderInfo.intentId);
-        } catch {}
-      }
-      onBackToForm?.();
-    }}
-    orderSummary={orderSummary}
-    onMpApproved={() => showSuccess(amountSoles)}
-    onCashCreate={async () => {
-      if (!onPayCash) return alert("onPayCash no implementado");
-      const resp = await onPayCash({ amount: amountSoles });
-      showCashCreated({
-        amount: resp?.amount ?? amountSoles,
-        pedidoId: resp?.pedidoId,
-      });
-    }}
-  />
-) : (
-
+            <PayTabs
+              MP={MP}
+              amountSoles={amountSoles}
+              orderInfo={orderInfo}
+              buyerName={name}
+              buyerEmail={email}
+              onBackToForm={async () => {
+                if (!success && orderInfo?.intentId) {
+                  try {
+                    await abandonarIntent(orderInfo.intentId);
+                  } catch {}
+                }
+                onBackToForm?.();
+              }}
+              orderSummary={orderSummary}
+              onMpApproved={() => showSuccess(amountSoles)}
+              onCashCreate={async () => {
+                if (!onPayCash) return alert("onPayCash no implementado");
+                const resp = await onPayCash({ amount: amountSoles });
+                showCashCreated({
+                  amount: resp?.amount ?? amountSoles,
+                  pedidoId: resp?.pedidoId,
+                  pedidoNumero:
+                    resp?.pedidoNumero ??
+                    resp?.orderNumber ??
+                    resp?.order_no ??
+                    resp?.numero ??
+                    null,
+                });
+              }}
+            />
+          ) : (
             <form
               id="billing-form"
               onSubmit={submitForm}
@@ -522,7 +550,7 @@ function PayTabs({
         </div>
 
         <div className="flex-1 bg-white rounded-2xl border border-gray-100 p-1 shadow-sm min-h-[350px] min-w-0">
-          {/* Tarjeta: SIEMPRE MONTADO, solo se oculta */}
+          {/* Tarjeta */}
           <div
             className={`${
               tab === "card" ? "block" : "hidden"
@@ -551,9 +579,7 @@ function PayTabs({
               <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
                 <IconYape />
               </div>
-              <h3 className="text-lg font-bold text-gray-900">
-                Pagar con Yape
-              </h3>
+              <h3 className="text-lg font-bold text-gray-900">Pagar con Yape</h3>
             </div>
             <YapeForm
               amountSoles={amountSoles}
@@ -690,7 +716,7 @@ function OrderSummary({ orderSummary, dark }) {
   );
 }
 
-function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
+function SuccessView({ amount, pedidoNumero, orderSummary, note, onClose }) {
   return (
     <div className="flex flex-col items-center text-center py-6 animate-in fade-in zoom-in">
       <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-4">
@@ -706,9 +732,9 @@ function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
           </span>
         </div>
         <div className="p-4">
-          {pedidoId && (
+          {pedidoNumero && (
             <div className="text-sm mb-2 text-gray-900">
-              Pedido <b>#{pedidoId}</b>
+              Pedido <b>#{pedidoNumero}</b>
             </div>
           )}
           <OrderSummary orderSummary={orderSummary} />
@@ -724,7 +750,7 @@ function SuccessView({ amount, pedidoId, orderSummary, note, onClose }) {
   );
 }
 
-function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
+function CashCreatedView({ amount, pedidoNumero, orderSummary, note, onClose }) {
   return (
     <div className="flex flex-col items-center text-center py-6 animate-in fade-in zoom-in">
       <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mb-4">
@@ -742,9 +768,9 @@ function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
           </span>
         </div>
         <div className="p-4">
-          {pedidoId && (
+          {pedidoNumero && (
             <div className="text-sm mb-2 text-gray-900">
-              Pedido <b>#{pedidoId}</b>
+              Pedido <b>#{pedidoNumero}</b>
             </div>
           )}
           <OrderSummary orderSummary={orderSummary} />
@@ -759,6 +785,7 @@ function CashCreatedView({ amount, pedidoId, orderSummary, note, onClose }) {
     </div>
   );
 }
+
 /* ===================== CARD BRICK ===================== */
 const CardBrick = React.memo(function CardBrick({
   MP, // compat
@@ -774,7 +801,6 @@ const CardBrick = React.memo(function CardBrick({
   const [ready, setReady] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
-  // ID único para el contenedor del Brick durante TODO el ciclo de vida del modal
   const idRef = React.useRef(
     `cardPaymentBrick_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
   );
@@ -795,7 +821,6 @@ const CardBrick = React.memo(function CardBrick({
           return;
         }
 
-        // Cargamos el SDK v2 (el mismo que se usa para Yape)
         const MPConstructor = await loadMercadoPagoSdk();
         if (cancelled) return;
 
@@ -808,7 +833,6 @@ const CardBrick = React.memo(function CardBrick({
         const bricksBuilder =
           window.__MP_BRICKS_BUILDER || (window.__MP_BRICKS_BUILDER = mp.bricks());
 
-        // 🔴 IMPORTANTE: si quedó un Brick anterior, lo desmontamos antes de crear otro
         if (cardBrickController?.unmount) {
           try {
             await cardBrickController.unmount();
@@ -839,7 +863,6 @@ const CardBrick = React.memo(function CardBrick({
                     return reject(new Error("Token no generado"));
                   }
 
-                  // Construimos los items para metadata
                   const items =
                     Array.isArray(orderSummary) && orderSummary.length
                       ? orderSummary.map((it, idx) => ({
@@ -876,7 +899,9 @@ const CardBrick = React.memo(function CardBrick({
                         buyerEmail || fd?.payer?.email || "",
                       items,
                     },
-                    idempotencyKey: String(intentId || pedidoId || Date.now()),
+                    idempotencyKey: String(
+                      intentId || pedidoId || Date.now()
+                    ),
                   });
 
                   if (resp?.status === "approved") onApproved?.();
@@ -893,14 +918,12 @@ const CardBrick = React.memo(function CardBrick({
         });
 
         if (cancelled) {
-          // Si el efecto se canceló mientras creábamos, desmontamos inmediatamente
           try {
             await controller.unmount();
           } catch {}
           return;
         }
 
-        // Guardamos el controller globalmente para próximos flujos / cleanup
         cardBrickController = controller;
       } catch (e) {
         console.error("Error inicializando Card Brick:", e);
@@ -912,8 +935,6 @@ const CardBrick = React.memo(function CardBrick({
 
     return () => {
       cancelled = true;
-
-      // 🔴 Cleanup: desmontar el Brick para que la siguiente compra pueda crearlo de nuevo
       if (cardBrickController?.unmount) {
         try {
           cardBrickController.unmount();
@@ -941,17 +962,10 @@ const CardBrick = React.memo(function CardBrick({
   );
 });
 
-
-/* ===================== LOADER LAZY DEL SDK v2 (YAPE) ===================== */
-
+/* ===================== LOADER SDK V2 ===================== */
 let mpSdkPromise = null;
-// Controlador global del Brick de tarjeta para poder desmontarlo entre compras
 let cardBrickController = null;
 
-/**
- * Carga el SDK v2 de MercadoPago de forma perezosa (solo cuando se usa Yape).
- * Evita que el script sea de bloqueo en el index.html.
- */
 function loadMercadoPagoSdk() {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("window no disponible"));

@@ -1,3 +1,4 @@
+// src/pages/AdminMovimientosEfectivo.jsx
 import { useEffect, useState } from "react";
 import { listarMovimientosEfectivo } from "../services/cashApi";
 
@@ -6,6 +7,7 @@ const PEN = new Intl.NumberFormat("es-PE", {
   currency: "PEN",
   minimumFractionDigits: 2,
 });
+
 const toDateInputValue = (d) => {
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60 * 1000);
@@ -16,7 +18,7 @@ function AdminMovimientosEfectivo() {
   const [start, setStart] = useState(toDateInputValue(new Date()));
   const [end, setEnd] = useState(toDateInputValue(new Date()));
   const [estado, setEstado] = useState("all"); // approved|pending|all
-  const [userId, setUserId] = useState("");    // opcional filtrar por mozo
+  const [userId, setUserId] = useState(""); // opcional filtrar por mozo
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [stats, setStats] = useState({ totalEfectivo: 0 });
@@ -51,11 +53,17 @@ function AdminMovimientosEfectivo() {
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Movimientos de efectivo</h1>
-          <p className="text-sm text-zinc-500">Control diario, por mozo y estado</p>
+          <p className="text-sm text-zinc-500">
+            Control diario, por mozo y estado
+          </p>
         </div>
         <div className="text-right">
-          <div className="text-xs text-zinc-500">Total efectivo (aprobado)</div>
-          <div className="text-xl font-bold">{PEN.format(stats.totalEfectivo || 0)}</div>
+          <div className="text-xs text-zinc-500">
+            Total efectivo (aprobado)
+          </div>
+          <div className="text-xl font-bold">
+            {PEN.format(stats.totalEfectivo || 0)}
+          </div>
         </div>
       </div>
 
@@ -91,7 +99,9 @@ function AdminMovimientosEfectivo() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm">Mozo (userId, opcional)</label>
+          <label className="mb-1 block text-sm">
+            Mozo (userId, opcional)
+          </label>
           <input
             className="w-full rounded border px-3 py-2"
             placeholder="uuid"
@@ -128,27 +138,47 @@ function AdminMovimientosEfectivo() {
           <tbody>
             {(rows || []).map((r) => (
               <tr key={r.id} className="border-t">
-                <td className="px-3 py-2">#{r.pedido_id}</td>
-                <td className="px-3 py-2">{PEN.format(r.monto || 0)}</td>
                 <td className="px-3 py-2">
-                  {r.cash_received != null ? PEN.format(r.cash_received) : "-"}
+                  #
+                  {r.pedido_numero ??
+                    r.pedido_order_no ??
+                    r.pedido_id}
                 </td>
-                <td className="px-3 py-2">{PEN.format(r.cash_change || 0)}</td>
-                <td className="px-3 py-2">{String(r.estado || "").toUpperCase()}</td>
                 <td className="px-3 py-2">
-                  {r.approved_by_user_id ? r.approved_by_user_id : r.approved_by || "-"}
+                  {PEN.format(r.monto || 0)}
+                </td>
+                <td className="px-3 py-2">
+                  {r.cash_received != null
+                    ? PEN.format(r.cash_received)
+                    : "-"}
+                </td>
+                <td className="px-3 py-2">
+                  {PEN.format(r.cash_change || 0)}
+                </td>
+                <td className="px-3 py-2">
+                  {String(r.estado || "").toUpperCase()}
+                </td>
+                <td className="px-3 py-2">
+                  {r.approved_by_user_id
+                    ? r.approved_by_user_id
+                    : r.approved_by || "-"}
                 </td>
                 <td className="px-3 py-2">
                   {r.approved_at
                     ? new Date(r.approved_at).toLocaleString()
                     : new Date(r.created_at).toLocaleString()}
                 </td>
-                <td className="px-3 py-2">{r.cash_note || "-"}</td>
+                <td className="px-3 py-2">
+                  {r.cash_note || "-"}
+                </td>
               </tr>
             ))}
             {(!rows || rows.length === 0) && (
               <tr>
-                <td className="px-3 py-4 text-center text-zinc-500" colSpan={8}>
+                <td
+                  className="px-3 py-4 text-center text-zinc-500"
+                  colSpan={8}
+                >
                   Sin resultados
                 </td>
               </tr>
