@@ -50,17 +50,27 @@ async function notifyKdsPedidoPagado(restaurantId, pedidoId) {
 
 /* ------------------------------- Helpers ------------------------------- */
 
-async function getSaldo(pedidoId) {
-  const { data: ped, error: ePed } = await supabase
+/**
+ * Obtiene el saldo de un pedido.
+ * Si se pasa restaurantId, valida que el pedido pertenezca a ese restaurante.
+ */
+async function getSaldo(pedidoId, restaurantId) {
+  let q = supabase
     .from("pedidos")
     .select(
       "id, total, restaurant_id, estado, cpe_id, comprobante_tipo, billing_client, billing_email, sunat_estado"
     )
-    .eq("id", Number(pedidoId))
-    .maybeSingle();
+    .eq("id", Number(pedidoId));
+
+  // 🔒 Si nos pasan restaurantId, filtramos también por restaurante
+  if (restaurantId) {
+    q = q.eq("restaurant_id", Number(restaurantId));
+  }
+
+  const { data: ped, error: ePed } = await q.maybeSingle();
 
   if (ePed) throw new Error(ePed.message);
-  if (!ped) throw new Error("Pedido no encontrado");
+  if (!ped) throw new Error("Pedido no encontrado en este restaurante");
 
   const { data: rows, error: ePag } = await supabase
     .from("pagos")
@@ -78,6 +88,7 @@ async function getSaldo(pedidoId) {
 }
 
 async function recomputeAndEmitIfPaid(pedidoId) {
+  // Aquí NO pasamos restaurantId porque ya validamos antes el restaurante
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
 
   if (pendiente > 0.01) {
@@ -194,10 +205,18 @@ async function insertCashMovement({
 
 /* ------------------------------- Endpoints ------------------------------ */
 
-/** GET saldo del pedido */
+/** GET saldo del pedido (solo del restaurante del usuario) */
 router.get("/pedidos/:id/saldo", async (req, res) => {
   try {
-    const r = await getSaldo(Number(req.params.id));
+    const user = await getAuthUser(req);
+
+    if (!user || !user.restaurantId) {
+      return res.status(401).json({ error: "Sesión inválida" });
+    }
+
+    const pedidoId = Number(req.params.id);
+    const r = await getSaldo(pedidoId, user.restaurantId); // 🔒 filtrado por restaurante
+
     res.json({
       total: Number(r.pedido.total),
       pagado: r.pagado,
@@ -223,7 +242,17 @@ router.post(
       if (!(amount > 0))
         return res.status(400).json({ error: "Monto inválido" });
 
-      const { pedido, pendiente } = await getSaldo(pedidoId);
+      // 🔒 Validar sesión y restaurante
+      const user = await getAuthUser(req);
+      if (!user || !user.restaurantId) {
+        return res.status(401).json({ error: "Sesión inválida" });
+      }
+
+      const { pedido, pendiente } = await getSaldo(
+        pedidoId,
+        user.restaurantId
+      );
+
       if (amount - pendiente > 0.01) {
         return res
           .status(400)
@@ -296,7 +325,14 @@ router.post(
       if (!pin || !pagoId)
         return res.status(400).json({ error: "PIN y pagoId requeridos" });
 
-      // Traer pago y validar que sea efectivo/cash
+      // 🔒 Validar sesión
+      const user = await getAuthUser(req);
+      if (!user || !user.restaurantId) {
+        return res.status(401).json({ error: "Sesión inválida" });
+      }
+      const ridUser = Number(user.restaurantId);
+
+      // Traer pago y validar que sea efectivo/cash y del mismo restaurante
       const { data: pago } = await supabase
         .from("pagos")
         .select(
@@ -305,8 +341,15 @@ router.post(
         .eq("id", pagoId)
         .maybeSingle();
 
-      if (!pago || pago.pedido_id !== pedidoId)
-        return res.status(404).json({ error: "Pago no encontrado" });
+      if (
+        !pago ||
+        pago.pedido_id !== pedidoId ||
+        Number(pago.restaurant_id) !== ridUser
+      ) {
+        return res
+          .status(404)
+          .json({ error: "Pago no encontrado en este restaurante" });
+      }
 
       const estadoLower = String(pago.estado || "").toLowerCase();
       if (estadoLower === "approved") {
@@ -335,10 +378,9 @@ router.post(
       const ok = rest.cash_pin_hash === hashPin(pin, rid);
       if (!ok) return res.status(403).json({ error: "PIN inválido" });
 
-      // Quién aprueba (prioridad: headers del front → usuario supabase → "pin")
+      // Quién aprueba (prioridad: header → usuario supabase → "pin")
       const headerEmail = (req.get("x-app-user") || "").trim();
-      const user = await getAuthUser(req); // puede ser null si no usas Supabase Auth
-      const whoEmail = headerEmail || user?.email || "pin";
+      const whoEmail = headerEmail || user.email || "pin";
 
       // Recalcular cash_received/cash_change si llega "received" ahora
       let cash_received = pago.cash_received;
