@@ -23,13 +23,36 @@ function hashPin(pin, restaurantId) {
 }
 
 /**
+ * Lee la info de contexto de la request:
+ * - intenta usar getAuthUser(req)
+ * - si no hay user o no tiene restaurantId, usa los headers del front
+ *
+ * Devuelve { user, restaurantId, email }
+ */
+async function getRequestContext(req) {
+  const headerRid = Number(req.get("x-app-restaurant-id") || 0) || null;
+  const headerEmail = (req.get("x-app-user") || "").trim() || null;
+
+  let user = null;
+  try {
+    user = await getAuthUser(req);
+  } catch {
+    user = null;
+  }
+
+  const restaurantId = user?.restaurantId || headerRid;
+  const email = user?.email || headerEmail;
+
+  return { user, restaurantId, email };
+}
+
+/**
  * Avisar al backend-pedidos para que el KDS reciba un evento de "pedido_pagado".
- * Usa PEDIDOS_URL + INTERNAL_KDS_TOKEN (si está configurado).
  */
 async function notifyKdsPedidoPagado(restaurantId, pedidoId) {
   try {
     const base = (PEDIDOS_URL || "").trim();
-    if (!base) return; // si no configuras PEDIDOS_URL, simplemente no avisa
+    if (!base) return;
 
     const url = `${base.replace(/\/+$/, "")}/api/webhooks/kds/pedido-pagado`;
 
@@ -62,7 +85,6 @@ async function getSaldo(pedidoId, restaurantId) {
     )
     .eq("id", Number(pedidoId));
 
-  // 🔒 Si nos pasan restaurantId, filtramos también por restaurante
   if (restaurantId) {
     q = q.eq("restaurant_id", Number(restaurantId));
   }
@@ -88,7 +110,7 @@ async function getSaldo(pedidoId, restaurantId) {
 }
 
 async function recomputeAndEmitIfPaid(pedidoId) {
-  // Aquí NO pasamos restaurantId porque ya validamos antes el restaurante
+  // aquí no pasamos restaurantId porque ya se validó antes
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
 
   if (pendiente > 0.01) {
@@ -116,7 +138,6 @@ async function recomputeAndEmitIfPaid(pedidoId) {
   let cpeId = pedido.cpe_id || null;
   let estadoCpe = pedido.sunat_estado || null;
 
-  // Si ya existe CPE o no es modo SUNAT → solo avisar KDS
   if (cpeId || billingMode !== "sunat") {
     try {
       if (rid) {
@@ -155,7 +176,6 @@ async function recomputeAndEmitIfPaid(pedidoId) {
     console.warn("[recomputeAndEmitIfPaid] CPE error:", e.message);
   }
 
-  // Avisar al KDS
   try {
     if (rid) {
       await notifyKdsPedidoPagado(rid, pedido.id);
@@ -208,14 +228,14 @@ async function insertCashMovement({
 /** GET saldo del pedido (solo del restaurante del usuario) */
 router.get("/pedidos/:id/saldo", async (req, res) => {
   try {
-    const user = await getAuthUser(req);
+    const pedidoId = Number(req.params.id);
+    const { restaurantId } = await getRequestContext(req);
 
-    if (!user || !user.restaurantId) {
+    if (!restaurantId) {
       return res.status(401).json({ error: "Sesión inválida" });
     }
 
-    const pedidoId = Number(req.params.id);
-    const r = await getSaldo(pedidoId, user.restaurantId); // 🔒 filtrado por restaurante
+    const r = await getSaldo(pedidoId, restaurantId);
 
     res.json({
       total: Number(r.pedido.total),
@@ -227,7 +247,7 @@ router.get("/pedidos/:id/saldo", async (req, res) => {
   }
 });
 
-/** POST crea un pago en EFECTIVO pendiente (recibido/nota opcional) */
+/** POST crea un pago en EFECTIVO pendiente */
 router.post(
   "/pedidos/:id/pagos/efectivo",
   express.json({ type: "*/*" }),
@@ -242,16 +262,12 @@ router.post(
       if (!(amount > 0))
         return res.status(400).json({ error: "Monto inválido" });
 
-      // 🔒 Validar sesión y restaurante
-      const user = await getAuthUser(req);
-      if (!user || !user.restaurantId) {
+      const { restaurantId } = await getRequestContext(req);
+      if (!restaurantId) {
         return res.status(401).json({ error: "Sesión inválida" });
       }
 
-      const { pedido, pendiente } = await getSaldo(
-        pedidoId,
-        user.restaurantId
-      );
+      const { pedido, pendiente } = await getSaldo(pedidoId, restaurantId);
 
       if (amount - pendiente > 0.01) {
         return res
@@ -259,7 +275,7 @@ router.post(
           .json({ error: "El monto excede el saldo pendiente" });
       }
 
-      // 🚫 NO PERMITIR DUPLICAR PAGOS PENDING
+      // NO PERMITIR DUPLICAR PAGOS PENDING
       const { data: existingPending } = await supabase
         .from("pagos")
         .select("id")
@@ -309,7 +325,7 @@ router.post(
   }
 );
 
-/** POST aprobar pago en efectivo con PIN (usa headers x-app-user / x-app-user-id) */
+/** POST aprobar pago en efectivo con PIN */
 router.post(
   "/pedidos/:id/pagos/:pagoId/aprobar",
   express.json({ type: "*/*" }),
@@ -325,12 +341,11 @@ router.post(
       if (!pin || !pagoId)
         return res.status(400).json({ error: "PIN y pagoId requeridos" });
 
-      // 🔒 Validar sesión
-      const user = await getAuthUser(req);
-      if (!user || !user.restaurantId) {
+      const ctx = await getRequestContext(req);
+      if (!ctx.restaurantId) {
         return res.status(401).json({ error: "Sesión inválida" });
       }
-      const ridUser = Number(user.restaurantId);
+      const ridUser = Number(ctx.restaurantId);
 
       // Traer pago y validar que sea efectivo/cash y del mismo restaurante
       const { data: pago } = await supabase
@@ -378,11 +393,10 @@ router.post(
       const ok = rest.cash_pin_hash === hashPin(pin, rid);
       if (!ok) return res.status(403).json({ error: "PIN inválido" });
 
-      // Quién aprueba (prioridad: header → usuario supabase → "pin")
-      const headerEmail = (req.get("x-app-user") || "").trim();
-      const whoEmail = headerEmail || user.email || "pin";
+      // Quién aprueba
+      const whoEmail = ctx.email || "pin";
 
-      // Recalcular cash_received/cash_change si llega "received" ahora
+      // Recalcular cash_received/cash_change
       let cash_received = pago.cash_received;
       let cash_change = pago.cash_change;
       if (received != null && received >= 0) {
@@ -393,14 +407,13 @@ router.post(
             : 0;
       }
 
-      // 1) UPDATE pagos (con manejo de error)
+      // UPDATE pagos
       const { data: updData, error: updError } = await supabase
         .from("pagos")
         .update({
           estado: "approved",
           approved_at: new Date().toISOString(),
-          approved_by: whoEmail, // 👈 correo del mozo
-          // approved_by_user_id: lo omitimos para evitar problemas de tipo
+          approved_by: whoEmail,
           cash_received,
           cash_change,
           cash_note: note || null,
@@ -422,16 +435,16 @@ router.post(
           .json({ error: "Pago no encontrado al actualizar" });
       }
 
-      // 2) INSERT movimiento de caja (no bloquear si falla)
+      // INSERT movimiento de caja (no bloquea si falla)
       await insertCashMovement({
         restaurantId: rid,
         pagoId,
         amount: Number(pago.monto || 0),
-        createdBy: null, // evitamos problemas de tipo en created_by
+        createdBy: null,
         note,
       });
 
-      // 3) Recomputar y emitir CPE si corresponde + avisar al KDS
+      // Recomputar y emitir CPE si corresponde + avisar al KDS
       const out = await recomputeAndEmitIfPaid(pedidoId);
       res.json({ ok: true, ...out });
     } catch (e) {
