@@ -57,16 +57,16 @@ const allowlist = [...new Set([...defaultOrigins, ...envOrigins])];
 const baseCors = {
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-allowedHeaders: [
-  "Content-Type",
-  "x-csrf-token",
-  "authorization",
-  "x-restaurant-id",
-  "x-app-restaurant-id",
-  "x-app-user-id",
-  "x-db-token",
-  "x-app-user"        // 👈 FALTABA ESTE
-],
+  allowedHeaders: [
+    "Content-Type",
+    "x-csrf-token",
+    "authorization",
+    "x-restaurant-id",
+    "x-app-restaurant-id",
+    "x-app-user-id",
+    "x-db-token",
+    "x-app-user", // 👈 agregado
+  ],
   exposedHeaders: ["Content-Disposition"],
 };
 
@@ -119,8 +119,8 @@ app.use(
   helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],          // 👈 sin 'unsafe-inline'
-      styleSrc: ["'self'"],           // 👈 sin 'unsafe-inline'
+      scriptSrc: ["'self'"], // 👈 sin 'unsafe-inline'
+      styleSrc: ["'self'"], // 👈 sin 'unsafe-inline'
       imgSrc: ["'self'", "data:", "blob:"],
       fontSrc: ["'self'", "data:"],
       connectSrc: [
@@ -129,7 +129,7 @@ app.use(
         "https://api.mercadopago.com",
         "https://*.supabase.co",
       ],
-      frameAncestors: ["'self'"],     // también ayuda contra clickjacking
+      frameAncestors: ["'self'"], // también ayuda contra clickjacking
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
@@ -169,16 +169,15 @@ app.get("/api/csrf", (req, res) => {
   }
 
   res.cookie("csrf_token", token, {
-    httpOnly: false,                                // riesgo bajo aceptado, no es sesión
+    httpOnly: false, // riesgo bajo aceptado, no es sesión
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    path: "/api",                                   // 🔒 limitar ámbito a /api
-    maxAge: 1000 * 60 * 60 * 12,                    // 🔒 12 horas
+    path: "/api", // 🔒 limitar ámbito a /api
+    maxAge: 1000 * 60 * 60 * 12, // 🔒 12 horas
   });
 
   res.json({ ok: true });
 });
-
 
 /* ---------- Debug sólo en no-producción ---------- */
 if (process.env.NODE_ENV !== "production") {
@@ -210,13 +209,13 @@ app.use("/api", pedidos);
 
 // Rutas de administración (caja, facturación, etc.)
 app.use("/api/admin", adminCashRoutes);
-app.use("/api/admin", adminFacturacionRoutes)
+app.use("/api/admin", adminFacturacionRoutes);
+
 // Split pagos mixtos/tarjeta
 app.use("/api/split", requireCsrf, requireWaiter, splitRoutes);
 
-// ⚠️ Split efectivo (archivo cash.routes.js)
+// Split efectivo (archivo cash.routes.js)
 app.use("/api/split", requireCsrf, requireWaiter, cashRoutes);
-
 
 // Checkout (pasarela) — protegido con CSRF
 app.use("/api/checkout", requireCsrf, checkoutRoutes);

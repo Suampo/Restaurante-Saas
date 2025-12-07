@@ -105,4 +105,51 @@ router.get('/api/pay/public/:id/config', async (req, res) => {
   }
 });
 
+/**
+ * NUEVO
+ * GET /public/pedidos/:id/cpe/pdf
+ *
+ * Dado un pedidoId, busca su cpe_id y redirige a la ruta
+ * de descarga de PDF que ya tienes en admin.facturacion:
+ *   /api/admin/cpe/:cpeId/pdf
+ *
+ * Si en tu admin la ruta es distinta, solo cambia la URL del redirect.
+ */
+router.get('/public/pedidos/:id/cpe/pdf', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+
+    const pedidoId = Number(req.params.id);
+    if (!pedidoId) throw new Error('pedidoId inválido');
+
+    const { data: ped, error } = await supabase
+      .from('pedidos')
+      .select('id, cpe_id')
+      .eq('id', pedidoId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!ped) {
+      return res
+        .status(404)
+        .json({ ok: false, error: 'Pedido no encontrado' });
+    }
+
+    if (!ped.cpe_id) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Este pedido aún no tiene comprobante emitido.',
+      });
+    }
+
+    const cpeId = ped.cpe_id;
+
+    // 👇 Ajusta esta ruta si en admin.facturacion usas otra URL
+    return res.redirect(`/api/admin/cpe/${encodeURIComponent(cpeId)}/pdf`);
+  } catch (e) {
+    console.error('[public.cpe.pdf] error:', e);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;
