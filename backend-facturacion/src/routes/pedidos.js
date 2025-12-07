@@ -528,6 +528,7 @@ async function emitWithApisPeru({ restaurantId, tipoDoc, serie, correlativo, ped
 
 // ================== AUTO EMISIÓN CPE ==================
 // (sin cambios al manejo de note)
+// ================== AUTO EMISIÓN CPE ==================
 async function autoEmitCpeIfNeeded(pedidoId) {
   const { data: pedido, error: ePed } = await supabase
     .from('pedidos')
@@ -538,26 +539,61 @@ async function autoEmitCpeIfNeeded(pedidoId) {
   if (!pedido) throw new Error('Pedido no encontrado');
 
   const tipoDoc = pedido.comprobante_tipo;
-  if (!tipoDoc) return;
+  const estadoActual = pedido.sunat_estado || 'NO_EMITIDO';
+
+  // Si el pedido no tiene tipo de comprobante, no hay nada que emitir
+  if (!tipoDoc) {
+    return { id: pedido.cpe_id || null, estado: estadoActual };
+  }
+
+  // === Leer billing_mode del restaurante ===
+  let billingMode = 'none';
+  try {
+    const { data: rest, error: eRest } = await supabase
+      .from('restaurantes')
+      .select('billing_mode')
+      .eq('id', pedido.restaurant_id)
+      .maybeSingle();
+    if (eRest) throw eRest;
+    billingMode = String(rest?.billing_mode || 'none').trim().toLowerCase();
+  } catch (e) {
+    console.warn('[autoEmitCpeIfNeeded] no se pudo leer billing_mode:', e.message);
+  }
+
+  // Si NO está en modo SUNAT → no se emite CPE electrónico
+  if (billingMode !== 'sunat') {
+    return { id: pedido.cpe_id || null, estado: estadoActual };
+  }
 
   const restaurantId = Number(pedido.restaurant_id);
   const total = Number(pedido.total || 0);
   if (!total) throw new Error('Total inválido');
 
+  // === Verificar si YA existe un CPE para este pedido ===
   const { data: existing } = await supabase
     .from('cpe_documents')
-    .select('id, serie, correlativo')
+    .select('id, serie, correlativo, estado')
     .eq('pedido_id', pedidoId)
     .maybeSingle();
+
   if (existing?.id) {
     if (!pedido.cpe_id) {
-      await supabase.from('pedidos')
-        .update({ cpe_id: existing.id, updated_at: new Date().toISOString() })
+      await supabase
+        .from('pedidos')
+        .update({
+          cpe_id: existing.id,
+          sunat_estado: existing.estado || estadoActual,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', pedidoId);
     }
-    return existing;
+    return {
+      id: existing.id,
+      estado: existing.estado || estadoActual,
+    };
   }
 
+  // === Crear nuevo CPE ===
   const { subtotal, igv } = splitIgvFromTotal(total);
 
   let detalle = [];
@@ -600,9 +636,14 @@ async function autoEmitCpeIfNeeded(pedidoId) {
         };
       });
     }
-  } catch {}
+  } catch (_) {}
+
   if (!detalle.length) {
-    detalle = [{ descripcion: 'Consumo en restaurante', cantidad: 1, precio_unitario: r2(total) }];
+    detalle = [{
+      descripcion: 'Consumo en restaurante',
+      cantidad: 1,
+      precio_unitario: r2(total),
+    }];
   }
 
   const { serie, correlativo } = await reservarCorrelativo(restaurantId, tipoDoc);
@@ -623,7 +664,7 @@ async function autoEmitCpeIfNeeded(pedidoId) {
       estado: 'PENDIENTE',
       client: pedido.billing_client || null,
       raw_request: null,
-      raw_response: null
+      raw_response: null,
     }])
     .select('id')
     .maybeSingle();
@@ -639,47 +680,62 @@ async function autoEmitCpeIfNeeded(pedidoId) {
   let finalEstado = 'ACEPTADO';
   try {
     const r = await emitWithApisPeru({
-      restaurantId, tipoDoc, serie, correlativo, pedido,
-      detalle, subtotal: r2(subtotal), igv: r2(igv), total: r2(total)
+      restaurantId,
+      tipoDoc,
+      serie,
+      correlativo,
+      pedido,
+      detalle,
+      subtotal: r2(subtotal),
+      igv: r2(igv),
+      total: r2(total),
     });
 
     const urls = await uploadCpeFiles({
-      restaurantId, serie, correlativo,
+      restaurantId,
+      serie,
+      correlativo,
       xmlTextOrB64: r?.files?.xmlTextOrB64 || null,
       pdfB64: r?.files?.pdfB64 || null,
-      cdrB64: r?.files?.cdrB64 || null
+      cdrB64: r?.files?.cdrB64 || null,
     });
 
     finalEstado = r?.estado || 'ACEPTADO';
 
-    await supabase.from('cpe_documents').update({
-      estado: finalEstado,
-      hash: r?.hash || null,
-      digest: r?.digest || null,
-      xml_url: urls.xml_url,
-      pdf_url: urls.pdf_url,
-      cdr_url: urls.cdr_url,
-      raw_request: r?.raw_response?.request || null,
-      raw_response: {
-        auth: r?.raw_response?.auth,
-        endpoint: r?.raw_response?.endpoint,
-        status: r?.raw_response?.status,
-        body: r?.raw_response?.body,
-        attempts: r?.raw_response?.attempts || [],
-        pdf_generation: r?.raw_response?.pdf_generation || null
-      },
-      updated_at: new Date().toISOString(),
-    }).eq('id', cpeId);
+    await supabase
+      .from('cpe_documents')
+      .update({
+        estado: finalEstado,
+        hash: r?.hash || null,
+        digest: r?.digest || null,
+        xml_url: urls.xml_url,
+        pdf_url: urls.pdf_url,
+        cdr_url: urls.cdr_url,
+        raw_request: r?.raw_response?.request || null,
+        raw_response: {
+          auth: r?.raw_response?.auth,
+          endpoint: r?.raw_response?.endpoint,
+          status: r?.raw_response?.status,
+          body: r?.raw_response?.body,
+          attempts: r?.raw_response?.attempts || [],
+          pdf_generation: r?.raw_response?.pdf_generation || null,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cpeId);
   } catch (e) {
     console.warn('[emitCPE] emisión fallida:', e.message);
     const raw = e?.raw || { error: e.message, where: 'emitWithApisPeru.pre' };
-    await supabase.from('cpe_documents').update({
-      estado: 'RECHAZADO',
-      sunat_notas: e?.message || null,
-      raw_request: raw.request || null,
-      raw_response: raw,
-      updated_at: new Date().toISOString(),
-    }).eq('id', cpeId);
+    await supabase
+      .from('cpe_documents')
+      .update({
+        estado: 'RECHAZADO',
+        sunat_notas: e?.message || null,
+        raw_request: raw.request || null,
+        raw_response: raw,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cpeId);
     finalEstado = 'RECHAZADO';
   }
 
@@ -690,6 +746,7 @@ async function autoEmitCpeIfNeeded(pedidoId) {
 
   return { id: cpeId, estado: finalEstado };
 }
+
 
 // ================== POST /api/pedidos ==================
 router.post('/pedidos', express.json({ type: '*/*' }), async (req, res) => {
@@ -907,5 +964,5 @@ router.post('/pedidos/:id/pagado', express.json({ type: '*/*' }), async (req, re
     return res.status(500).json({ error: 'No se pudo marcar pagado' });
   }
 });
-
+router.autoEmitCpeIfNeeded = autoEmitCpeIfNeeded;
 module.exports = router;
