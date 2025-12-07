@@ -109,11 +109,16 @@ async function getSaldo(pedidoId, restaurantId) {
   return { pedido: ped, pagado, pendiente };
 }
 
+/**
+ * Recalcula el saldo del pedido y, si está totalmente pagado,
+ * emite el CPE SUNAT (boleta/factura) cuando corresponde.
+ */
 async function recomputeAndEmitIfPaid(pedidoId) {
   // aquí no pasamos restaurantId porque ya se validó antes
   const { pedido, pagado, pendiente } = await getSaldo(pedidoId);
 
   if (pendiente > 0.01) {
+    // Pago parcial
     return { ok: true, status: "partial", pagado, pendiente };
   }
 
@@ -127,24 +132,37 @@ async function recomputeAndEmitIfPaid(pedidoId) {
 
   const rid = Number(pedido.restaurant_id || 0);
 
-  // Revisar si hay que emitir CPE
+  // Leer modo de facturación del restaurante
   const { data: rest } = await supabase
     .from("restaurantes")
     .select("billing_mode")
     .eq("id", rid)
     .maybeSingle();
 
-  const billingMode = rest?.billing_mode || "none";
+  const billingMode = String(rest?.billing_mode || "none")
+    .trim()
+    .toLowerCase();
+
   let cpeId = pedido.cpe_id || null;
   let estadoCpe = pedido.sunat_estado || null;
+  const tipo = String(pedido.comprobante_tipo || "").trim(); // '01' factura, '03' boleta
 
-  if (cpeId || billingMode !== "sunat") {
+  // ⛔ CASOS DONDE NO SE EMITE CPE:
+  // - Ya existe un CPE
+  // - El restaurante no está en modo SUNAT
+  // - El pedido NO es boleta/factura SUNAT (ej: Boleta Simple / Recibo interno)
+  const esComprobanteSunat = tipo === "01" || tipo === "03";
+
+  if (cpeId || billingMode !== "sunat" || !esComprobanteSunat) {
     try {
       if (rid) {
         await notifyKdsPedidoPagado(rid, pedido.id);
       }
     } catch (e) {
-      console.warn("[recomputeAndEmitIfPaid] notifyKdsPedidoPagado:", e.message);
+      console.warn(
+        "[recomputeAndEmitIfPaid] notifyKdsPedidoPagado (skip CPE):",
+        e.message
+      );
     }
 
     return {
@@ -157,7 +175,10 @@ async function recomputeAndEmitIfPaid(pedidoId) {
     };
   }
 
-  // Emitir CPE SUNAT
+  // ✅ Emitir CPE SUNAT (boleta/factura) cuando:
+  // - billingMode === 'sunat'
+  // - es boleta/factura
+  // - todavía no hay cpe_id
   try {
     const full = await getPedidoCompleto(pedido.id);
     const emisor = await getEmisorByRestaurant(rid);
