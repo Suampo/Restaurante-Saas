@@ -1,60 +1,34 @@
 // backend-facturacion/src/services/facturador.js
-"use strict";
-
 const APISPERU_BASE =
   process.env.APISPERU_BASE || "https://facturacion.apisperu.com/api/v1";
+
 const { supabase } = require("./supabase");
 
 /**
- * Devuelve la configuración del emisor SUNAT para un restaurante.
- * Lanza errores claros si falta algo crítico (ruc, token, etc.).
+ * Devuelve la fila de sunat_emisores asociada al restaurant.
+ * Toma la más reciente que tenga token de empresa.
  */
 async function getEmisorByRestaurant(restaurantId) {
-  const rid = Number(restaurantId);
-
-  if (!rid) {
-    throw new Error(
-      `getEmisorByRestaurant: restaurantId inválido (${restaurantId})`
-    );
-  }
-
   const { data, error } = await supabase
     .from("sunat_emisores")
     .select("*")
-    .eq("restaurant_id", rid)
-    // toma primero el que tiene token y el más reciente
+    .eq("restaurant_id", Number(restaurantId))
     .order("apiperu_company_token", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(
-      `Error leyendo sunat_emisores para restaurant_id=${rid}: ${error.message}`
-    );
-  }
+  if (error) throw error;
 
   if (!data) {
     throw new Error(
-      `No se encontró configuración SUNAT (sunat_emisores) para restaurant_id=${rid}`
+      `Emisor (sunat_emisores) no configurado para el restaurant ${restaurantId}`
     );
   }
 
   if (!data.ruc) {
     throw new Error(
-      `Emisor SUNAT sin RUC para restaurant_id=${rid} (revisa tabla sunat_emisores)`
-    );
-  }
-
-  const token = (
-    data.apiperu_company_token ||
-    process.env.APISPERU_FALLBACK_TOKEN ||
-    ""
-  ).trim();
-
-  if (!token) {
-    throw new Error(
-      `Emisor SUNAT sin apiperu_company_token ni APISPERU_FALLBACK_TOKEN para restaurant_id=${rid}`
+      `Emisor de restaurant ${restaurantId} sin RUC configurado`
     );
   }
 
@@ -62,34 +36,34 @@ async function getEmisorByRestaurant(restaurantId) {
 }
 
 /**
- * Envía el comprobante a ApisPeru y registra el CPE en la tabla cpe_documents.
+ * Envía el comprobante a ApisPeru y guarda/actualiza el registro
+ * en la tabla cpe_documents. Devuelve { cpeId, estado }.
  *
- * Recibe:
- *   - restaurantId: id del restaurante
- *   - cpeBody: JSON que espera ApisPeru en /invoice/send
- *   - pedidoId (opcional): para enlazar el CPE al pedido en pedidos.cpe_id
- *
- * Devuelve:
- *   { cpeId, estado, response }  donde:
- *     - cpeId: id en cpe_documents (o null si algo falló al guardar)
- *     - estado: estado interno del CPE (ACEPTADO, ENVIADO, etc. o fallback)
- *     - response: respuesta cruda de ApisPeru
+ * @param {Object} params
+ * @param {number} params.restaurantId
+ * @param {number} [params.pedidoId]
+ * @param {Object} params.cpeBody
  */
-async function emitirInvoice({ restaurantId, cpeBody, pedidoId = null }) {
-  const rid = Number(restaurantId);
-  if (!rid) throw new Error("emitirInvoice: restaurantId requerido");
+async function emitirInvoice({ restaurantId, pedidoId, cpeBody }) {
+  if (!restaurantId) {
+    throw new Error("emitirInvoice: restaurantId requerido");
+  }
 
-  const emisor = await getEmisorByRestaurant(rid);
+  const emisor = await getEmisorByRestaurant(restaurantId);
 
+  // Token de empresa (ApisPeru)
   const token = (
     emisor.apiperu_company_token ||
     process.env.APISPERU_FALLBACK_TOKEN ||
     ""
   ).trim();
 
-  if (!token) throw new Error("Falta token de empresa (APISPERU)");
+  if (!token) {
+    throw new Error(
+      `Falta token de empresa (APISPERU) para restaurant ${restaurantId}`
+    );
+  }
 
-  // Log corto para debug
   console.log(
     "[APISPERU] usando token %s..., origen=%s, ruc=%s",
     token.slice(0, 10),
@@ -97,7 +71,7 @@ async function emitirInvoice({ restaurantId, cpeBody, pedidoId = null }) {
     emisor.ruc
   );
 
-  // 1) Enviar a ApisPeru
+  // --- 1) Enviar a ApisPeru ---
   const resp = await fetch(`${APISPERU_BASE}/invoice/send`, {
     method: "POST",
     headers: {
@@ -107,7 +81,13 @@ async function emitirInvoice({ restaurantId, cpeBody, pedidoId = null }) {
     body: JSON.stringify(cpeBody),
   });
 
-  const json = await resp.json().catch(() => ({}));
+  const rawText = await resp.text();
+  let json;
+  try {
+    json = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    json = { raw: rawText };
+  }
 
   if (!resp.ok) {
     const msg = json?.message || json?.error || `APISPERU ${resp.status}`;
@@ -116,101 +96,131 @@ async function emitirInvoice({ restaurantId, cpeBody, pedidoId = null }) {
     throw err;
   }
 
-  // 2) Intentar guardar en cpe_documents
-  //    (muchos campos son best-effort porque el formato de ApisPeru puede variar)
-  const tipoDoc =
+  // --- 2) Mapear estado SUNAT aproximado ---
+  let estado = "ENVIADO";
+  try {
+    const sr = json.sunat_response || json.sunat || null;
+    if (sr && typeof sr.success === "boolean") {
+      estado = sr.success ? "ACEPTADO" : "RECHAZADO";
+    } else if (json.accepted || json.aceptado) {
+      estado = "ACEPTADO";
+    }
+  } catch {
+    estado = "ENVIADO";
+  }
+
+  // --- 3) Extraer datos básicos del CPE desde el body ---
+  const tipo_doc = String(
     cpeBody.tipo_de_comprobante ||
-    cpeBody.tipo_doc ||
-    cpeBody.tipoDocumento ||
-    null;
+      cpeBody.tipo_documento ||
+      cpeBody.tipo_comprobante ||
+      ""
+  )
+    .padStart(2, "0")
+    .trim();
 
-  const serie =
+  const serie = String(
     cpeBody.serie ||
-    cpeBody.serie_comprobante ||
-    cpeBody.serieDocumento ||
-    "B001";
+      cpeBody.serie_comprobante ||
+      cpeBody.serie_documento ||
+      ""
+  ).trim();
 
-  const correlativoRaw =
+  const correlativo = Number(
     cpeBody.numero ||
-    cpeBody.numero_comprobante ||
-    cpeBody.numeroDocumento ||
-    cpeBody.correlativo ||
-    0;
+      cpeBody.numero_comprobante ||
+      cpeBody.correlativo ||
+      0
+  );
 
-  const correlativo = Number(correlativoRaw) || 0;
+  if (!tipo_doc || !serie || !correlativo) {
+    console.warn(
+      "[emitirInvoice] CPE sin tipo_doc/serie/correlativo válidos, no se guardará en cpe_documents"
+    );
+    return { cpeId: null, estado };
+  }
 
-  const moneda = cpeBody.moneda || "PEN";
+  const moneda =
+    cpeBody.moneda ||
+    cpeBody.tipo_de_moneda ||
+    "PEN";
+
+  const fecha_emision =
+    cpeBody.fecha_de_emision ||
+    cpeBody.fecha_emision ||
+    new Date().toISOString();
 
   const subtotal =
-    cpeBody.total_gravada ??
-    cpeBody.total_opgravadas ??
-    cpeBody.subtotal ??
-    null;
+    Number(
+      cpeBody.total_gravada ||
+        cpeBody.subtotal ||
+        cpeBody.subtotal_venta ||
+        0
+    ) || null;
 
-  const igv = cpeBody.total_igv ?? cpeBody.igv ?? null;
+  const igv =
+    Number(
+      cpeBody.total_igv ||
+        cpeBody.igv ||
+        0
+    ) || null;
 
   const total =
-    cpeBody.total ??
-    cpeBody.total_venta ??
-    cpeBody.monto_total ??
-    cpeBody.importe_total ??
-    null;
-
-  const estado =
-    json.estado || json.status || json.code || "ENVIADO";
+    Number(
+      cpeBody.total ||
+        cpeBody.total_venta ||
+        cpeBody.importe_total ||
+        0
+    ) || null;
 
   const client =
-    cpeBody.datos_del_cliente ||
     cpeBody.datos_del_cliente_o_receptor ||
     cpeBody.client ||
-    cpeBody.cliente ||
     null;
 
+  // --- 4) Guardar / actualizar cpe_documents ---
   let cpeRow = null;
-
   try {
-    const insertPayload = {
-      restaurant_id: rid,
-      pedido_id: pedidoId || null,
-      tipo_doc: tipoDoc || "03",
-      serie,
-      correlativo,
-      moneda,
-      subtotal,
-      igv,
-      total,
-      estado,
-      client,
-      raw_request: cpeBody,
-      raw_response: json,
-    };
-
     const { data, error } = await supabase
       .from("cpe_documents")
-      .insert([insertPayload])
+      .upsert(
+        [
+          {
+            restaurant_id: Number(restaurantId),
+            pedido_id: pedidoId || null,
+            tipo_doc,
+            serie,
+            correlativo,
+            fecha_emision,
+            moneda,
+            subtotal,
+            igv,
+            total,
+            estado,
+            client,
+            raw_request: cpeBody,
+            raw_response: json,
+          },
+        ],
+        { onConflict: "pedido_id" }
+      )
       .select("id, estado")
       .maybeSingle();
 
     if (error) {
-      console.warn(
-        "[emitirInvoice] warning al guardar en cpe_documents:",
+      console.error(
+        "[emitirInvoice] error guardando en cpe_documents:",
         error.message
       );
     } else {
       cpeRow = data;
     }
   } catch (e) {
-    console.warn(
-      "[emitirInvoice] excepción al guardar en cpe_documents:",
-      e.message
-    );
+    console.error("[emitirInvoice] excepción al guardar CPE:", e.message);
   }
 
-  return {
-    cpeId: cpeRow?.id || null,
-    estado: cpeRow?.estado || estado,
-    response: json,
-  };
+  const cpeId = cpeRow?.id || null;
+  return { cpeId, estado };
 }
 
 module.exports = { emitirInvoice, getEmisorByRestaurant };

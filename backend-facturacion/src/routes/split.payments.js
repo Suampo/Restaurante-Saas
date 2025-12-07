@@ -1,4 +1,3 @@
-// backend-facturacion/src/routes/split.payments.js
 "use strict";
 
 const express = require("express");
@@ -150,13 +149,12 @@ async function recomputeAndEmitIfPaid(pedidoId) {
   let estadoCpe = pedido.sunat_estado || null;
   const tipo = String(pedido.comprobante_tipo || "").trim(); // '01' factura, '03' boleta
 
-  // ¿Este pedido debería generar CPE SUNAT?
-  const esComprobanteSunat = tipo === "01" || tipo === "03";
-
   // ⛔ CASOS DONDE NO SE EMITE CPE:
   // - Ya existe un CPE
   // - El restaurante no está en modo SUNAT
   // - El pedido NO es boleta/factura SUNAT (ej: Boleta Simple / Recibo interno)
+  const esComprobanteSunat = tipo === "01" || tipo === "03";
+
   if (cpeId || billingMode !== "sunat" || !esComprobanteSunat) {
     try {
       if (rid) {
@@ -187,22 +185,17 @@ async function recomputeAndEmitIfPaid(pedidoId) {
     const full = await getPedidoCompleto(pedido.id);
     const emisor = await getEmisorByRestaurant(rid);
 
-    if (!emisor) {
-      throw new Error(
-        `Emisor SUNAT no configurado para restaurant_id=${rid}`
-      );
-    }
-
-    const cpeBody = await buildCPE(full, emisor, nowLimaISO());
+    // IMPORTANTE: buildCPE espera opciones; le pasamos { emisor }
+    const cpeBody = await buildCPE(full, { emisor }, nowLimaISO());
 
     const stored = await emitirInvoice({
       restaurantId: rid,
-      cpeBody,
       pedidoId: pedido.id,
+      cpeBody,
     });
 
-    cpeId = stored.cpeId || null;
-    estadoCpe = stored.estado || null;
+    cpeId = stored.cpeId;
+    estadoCpe = stored.estado;
 
     if (cpeId || estadoCpe) {
       await supabase
@@ -211,10 +204,7 @@ async function recomputeAndEmitIfPaid(pedidoId) {
         .eq("id", pedido.id);
     }
   } catch (e) {
-    console.warn(
-      "[recomputeAndEmitIfPaid] CPE error:",
-      e && e.stack ? e.stack : e.message
-    );
+    console.warn("[recomputeAndEmitIfPaid] CPE error:", e.message);
   }
 
   try {
