@@ -1,3 +1,4 @@
+// backend-facturacion/src/routes/split.payments.js
 "use strict";
 
 const express = require("express");
@@ -7,12 +8,10 @@ const axios = require("axios");
 const { PEDIDOS_URL, INTERNAL_KDS_TOKEN } = process.env;
 const { getAuthUser } = require("../utils/authUser");
 const { supabase } = require("../services/supabase");
-const { reservarCorrelativo } = require("../services/series");
-const {
-  emitirInvoice,
-  getEmisorByRestaurant,
-} = require("../services/facturador");
-const { getPedidoCompleto, buildCPE, nowLimaISO } = require("../services/cpe");
+
+// Reutilizamos la lógica de emisión CPE del módulo pedidos
+const pedidosRouter = require("./pedidos");
+const autoEmitCpeIfNeeded = pedidosRouter.autoEmitCpeIfNeeded;
 
 const CASH_SALT = (process.env.CASH_PIN_SALT || "cashpin.salt").trim();
 
@@ -113,7 +112,7 @@ async function getSaldo(pedidoId, restaurantId) {
 
 /**
  * Recalcula el saldo del pedido y, si está totalmente pagado,
- * emite el CPE SUNAT (boleta/factura) cuando corresponde.
+ * marca pagado y delega emisión CPE a autoEmitCpeIfNeeded.
  */
 async function recomputeAndEmitIfPaid(pedidoId) {
   // aquí no pasamos restaurantId porque ya se validó antes
@@ -133,80 +132,26 @@ async function recomputeAndEmitIfPaid(pedidoId) {
   }
 
   const rid = Number(pedido.restaurant_id || 0);
-
-  // Leer modo de facturación del restaurante
-  const { data: rest } = await supabase
-    .from("restaurantes")
-    .select("billing_mode")
-    .eq("id", rid)
-    .maybeSingle();
-
-  const billingMode = String(rest?.billing_mode || "none")
-    .trim()
-    .toLowerCase();
-
   let cpeId = pedido.cpe_id || null;
   let estadoCpe = pedido.sunat_estado || null;
-  const tipo = String(pedido.comprobante_tipo || "").trim(); // '01' factura, '03' boleta
 
-  // ⛔ CASOS DONDE NO SE EMITE CPE:
-  // - Ya existe un CPE
-  // - El restaurante no está en modo SUNAT
-  // - El pedido NO es boleta/factura SUNAT (ej: Boleta Simple / Recibo interno)
-  const esComprobanteSunat = tipo === "01" || tipo === "03";
-
-  if (cpeId || billingMode !== "sunat" || !esComprobanteSunat) {
-    try {
-      if (rid) {
-        await notifyKdsPedidoPagado(rid, pedido.id);
-      }
-    } catch (e) {
-      console.warn(
-        "[recomputeAndEmitIfPaid] notifyKdsPedidoPagado (skip CPE):",
-        e.message
-      );
-    }
-
-    return {
-      ok: true,
-      status: "paid",
-      pagado,
-      pendiente: 0,
-      cpeId,
-      estado: estadoCpe || "NO_EMITIDO",
-    };
-  }
-
-  // ✅ Emitir CPE SUNAT (boleta/factura) cuando:
-  // - billingMode === 'sunat'
-  // - es boleta/factura
-  // - todavía no hay cpe_id
+  // Reutilizar misma lógica de emisión CPE que tarjeta/Yape
   try {
-    const full = await getPedidoCompleto(pedido.id);
-    const emisor = await getEmisorByRestaurant(rid);
-
-    // IMPORTANTE: buildCPE espera opciones; le pasamos { emisor }
-    const cpeBody = await buildCPE(full, { emisor }, nowLimaISO());
-
-    const stored = await emitirInvoice({
-      restaurantId: rid,
-      pedidoId: pedido.id,
-      cpeBody,
-    });
-
-    cpeId = stored.cpeId;
-    estadoCpe = stored.estado;
-
-    if (cpeId || estadoCpe) {
-      await supabase
-        .from("pedidos")
-        .update({ cpe_id: cpeId, sunat_estado: estadoCpe })
-        .eq("id", pedido.id);
+    if (typeof autoEmitCpeIfNeeded === "function") {
+      const r = await autoEmitCpeIfNeeded(pedido.id);
+      if (r && r.id) {
+        cpeId = r.id;
+        estadoCpe = r.estado || estadoCpe;
+      }
     }
   } catch (e) {
-    console.warn("[recomputeAndEmitIfPaid] CPE error:", e.message);
+    console.warn(
+      "[recomputeAndEmitIfPaid] autoEmitCpeIfNeeded error:",
+      e.message
+    );
   }
 
+  // Avisar al KDS
   try {
     if (rid) {
       await notifyKdsPedidoPagado(rid, pedido.id);
