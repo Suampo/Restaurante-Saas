@@ -7,7 +7,7 @@ const router = express.Router();
 const { getEmisorByRestaurant } = require("../services/facturador");
 const { supabase } = require("../services/supabase");
 
-const APISPERU_BASE = (process.env.APISPERU_BASE || "").trim(); // ej. https://facturacion.apisperu.com/api/v1
+const APISPERU_BASE = (process.env.APISPERU_BASE || "").trim();
 const APISPERU_FALLBACK_TOKEN = (process.env.APISPERU_FALLBACK_TOKEN || "").trim();
 
 /* ===================== Helpers ===================== */
@@ -37,10 +37,23 @@ function esc(s = "") {
     .replace(/'/g, "&#039;");
 }
 
+function formatLima(dateInput) {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  return new Intl.DateTimeFormat("es-PE", {
+    timeZone: "America/Lima",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).format(d);
+}
+
 function pickNumber(obj, keys, fallback = 0) {
   for (const k of keys) {
-    const v = obj?.[k];
-    const n = Number(v);
+    const n = Number(obj?.[k]);
     if (!Number.isNaN(n) && Number.isFinite(n)) return n;
   }
   return fallback;
@@ -54,12 +67,23 @@ function pickString(obj, keys, fallback = "") {
   return fallback;
 }
 
+function tryParseJson(v) {
+  if (v == null) return null;
+  if (typeof v === "object") return v;
+  if (typeof v !== "string") return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
 /* ===================== DB Queries ===================== */
 
 async function getPedidoById(pedidoId) {
   const { data: ped, error } = await supabase
     .from("pedidos")
-    .select("id, restaurant_id, cpe_id")
+    .select("id, restaurant_id, cpe_id, order_no, total, created_at, note, comprobante_tipo")
     .eq("id", pedidoId)
     .maybeSingle();
   if (error) throw error;
@@ -67,7 +91,6 @@ async function getPedidoById(pedidoId) {
 }
 
 async function getPedidoFull(pedidoId) {
-  // usamos select('*') para no depender de nombres exactos de columnas
   const { data: ped, error } = await supabase
     .from("pedidos")
     .select("*")
@@ -95,64 +118,148 @@ async function getReciboSimpleByPedidoId(pedidoId) {
     .eq("tipo_doc", "00")
     .order("created_at", { ascending: false })
     .limit(1);
-
   if (error) throw error;
   return Array.isArray(data) && data.length ? data[0] : null;
 }
 
-// Intenta obtener ítems del pedido en distintas tablas comunes.
-// Si tu tabla real tiene otro nombre, cámbialo aquí.
-async function getPedidoItems(pedidoId) {
-  const candidates = ["pedido_detalle", "pedido_items", "pedido_productos", "detalle_pedido"];
-  let lastErr = null;
+async function getRestaurantName(restaurantId) {
+  if (!restaurantId) return "Recibo";
+  try {
+    const { data } = await supabase
+      .from("restaurantes")
+      .select("nombre, nombre_comercial")
+      .eq("id", Number(restaurantId))
+      .maybeSingle();
+    return data?.nombre_comercial || data?.nombre || "Recibo";
+  } catch {
+    return "Recibo";
+  }
+}
 
-  for (const table of candidates) {
-    try {
-      const { data, error } = await supabase.from(table).select("*").eq("pedido_id", pedidoId);
-      if (error) throw error;
-      if (Array.isArray(data)) return { table, rows: data };
-      return { table, rows: [] };
-    } catch (e) {
-      lastErr = e;
-      // seguimos con el siguiente candidato
+/**
+ * ✅ Tus tablas reales:
+ * - pedido_detalle (seguro)
+ * - pedido_detalle_combo_items (si existe relación, lo intentamos)
+ */
+async function getPedidoItems(pedidoId) {
+  // 1) detalle principal
+  let detalle = [];
+  {
+    const { data, error } = await supabase
+      .from("pedido_detalle")
+      .select("*")
+      .eq("pedido_id", Number(pedidoId));
+    if (error) throw error;
+    detalle = Array.isArray(data) ? data : [];
+  }
+
+  // 2) combos (best-effort: puede tener pedido_id o pedido_detalle_id)
+  let comboItems = [];
+  try {
+    const { data, error } = await supabase
+      .from("pedido_detalle_combo_items")
+      .select("*")
+      .eq("pedido_id", Number(pedidoId));
+    if (!error && Array.isArray(data)) comboItems = data;
+  } catch {}
+
+  if (!comboItems.length && detalle.length) {
+    const ids = detalle.map((r) => r.id).filter(Boolean);
+    if (ids.length) {
+      try {
+        const { data, error } = await supabase
+          .from("pedido_detalle_combo_items")
+          .select("*")
+          .in("pedido_detalle_id", ids);
+        if (!error && Array.isArray(data)) comboItems = data;
+      } catch {}
     }
   }
 
-  // Si ninguna tabla existe o falló, devolvemos vacío (no reventamos el recibo).
-  console.warn("[recibo] No se pudieron leer ítems del pedido:", lastErr?.message || lastErr);
-  return { table: null, rows: [] };
+  return { detalle, comboItems };
 }
 
-function normalizeItems(rows) {
+function normalizeDetalle(rows) {
+  return (rows || [])
+    .map((r) => {
+      const name = pickString(
+        r,
+        [
+          "nombre",
+          "nombre_item",
+          "producto_nombre",
+          "producto",
+          "titulo",
+          "descripcion",
+          "menu_item_name",
+          "item_name",
+        ],
+        "Item"
+      );
+
+      const qty = pickNumber(r, ["cantidad", "qty", "quantity", "cant", "units"], 1);
+
+      const price = pickNumber(
+        r,
+        ["precio_unitario", "precio_unit", "precio", "price", "unit_price", "pu"],
+        0
+      );
+
+      return { name, qty, price };
+    })
+    .filter((x) => x.qty > 0);
+}
+
+function normalizeComboItems(rows) {
+  // Importante: no sumamos al total (solo informativo)
   return (rows || []).map((r) => {
-    const name = pickString(r, ["nombre", "name", "producto", "descripcion", "titulo", "title"], "Item");
-    const qty = pickNumber(r, ["cantidad", "qty", "quantity", "cant"], 1);
-    const price = pickNumber(r, ["precio_unitario", "precio", "price", "pu", "unit_price"], 0);
-    return { name, qty, price };
+    const name = pickString(
+      r,
+      ["nombre", "nombre_item", "producto_nombre", "producto", "descripcion", "titulo", "item_name"],
+      "Extra"
+    );
+    const qty = pickNumber(r, ["cantidad", "qty", "quantity", "cant", "units"], 1);
+    return { name: `↳ ${name}`, qty, price: 0 };
   });
 }
 
-function buildReciboHtml({ ped, items }) {
-  const total = pickNumber(ped, ["total", "monto_total", "importe_total", "amount"], 0);
+// Si algún día guardas items como JSON dentro de pedidos, acá lo soportamos también:
+function extractItemsFromPedido(ped) {
+  const candidates = ["items", "detalle", "order_summary", "cart", "line_items", "productos"];
+  for (const key of candidates) {
+    const parsed = tryParseJson(ped?.[key]);
+    if (Array.isArray(parsed)) {
+      return parsed.map((it) => ({
+        name: it.name || it.nombre || it.title || it.descripcion || it.producto || "Item",
+        qty: Number(it.qty ?? it.cantidad ?? it.quantity ?? 1),
+        price: Number(it.price ?? it.precio ?? it.unit_price ?? it.pu ?? 0),
+      }));
+    }
+  }
+  return [];
+}
 
-  const pedidoVisual = pickString(ped, ["order_no", "numero", "pedido_numero", "id"], String(ped?.id || ""));
-  const fecha = ped?.created_at ? new Date(ped.created_at) : new Date();
+/* ===================== HTML Recibo (Boleta Simple) ===================== */
 
-  const note = pickString(ped, ["note", "nota", "observacion", "observaciones"], "");
-
-  const rows = items.length
+function buildReciboHtml({ restaurantName, pedidoVisual, fechaStr, items, total, note }) {
+  const rows = (items || []).length
     ? items
-        .map(
-          (it) => `
-          <tr>
-            <td>${esc(it.name)}</td>
-            <td style="text-align:center">${it.qty}</td>
-            <td style="text-align:right">S/ ${Number(it.price || 0).toFixed(2)}</td>
-            <td style="text-align:right">S/ ${(Number(it.price || 0) * Number(it.qty || 1)).toFixed(2)}</td>
-          </tr>`
-        )
+        .map((it) => {
+          const qty = Number(it.qty || 1);
+          const price = Number(it.price || 0);
+          const sub = qty * price;
+          return `
+            <div class="row">
+              <div class="left">
+                <div class="name">${esc(it.name)}</div>
+                <div class="meta">${qty} x ${price ? `S/ ${price.toFixed(2)}` : `—`}</div>
+              </div>
+              <div class="right">${price ? `S/ ${sub.toFixed(2)}` : ""}</div>
+            </div>
+          `;
+        })
         .join("")
-    : `<tr><td colspan="4" style="text-align:center;color:#666">Sin ítems</td></tr>`;
+    : `<div class="muted">Sin ítems (no hay filas en pedido_detalle para este pedido).</div>`;
 
   return `<!doctype html>
 <html>
@@ -161,57 +268,69 @@ function buildReciboHtml({ ped, items }) {
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Recibo #${esc(pedidoVisual)}</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 18px; background:#f7f7f7; }
-    .card { max-width: 720px; margin:0 auto; background:#fff; border:1px solid #eee; border-radius:12px; padding:16px; }
-    h1 { margin:0 0 6px; font-size:18px; }
-    .muted { color:#666; font-size:12px; line-height:1.45; }
-    table { width:100%; border-collapse: collapse; margin-top:12px; }
-    th, td { border-bottom:1px solid #eee; padding:8px; font-size:13px; }
-    th { text-align:left; background:#fafafa; }
-    .tot { display:flex; justify-content:space-between; margin-top:14px; font-weight:700; }
-    .btns { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; }
-    button { padding:10px 12px; border:0; border-radius:10px; cursor:pointer; font-weight:700; }
-    .print { background:#111; color:#fff; }
-    .close { background:#eee; }
+    :root { --w: 400px; }
+    body { margin:0; background:#f5f6f7; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
+    .wrap { min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:16px; }
+    .ticket {
+      width: min(var(--w), 100%);
+      background:#fff;
+      border:1px solid #e7e7e7;
+      border-radius:14px;
+      padding:14px 14px 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.06);
+    }
+    h1 { font-size:18px; margin:0 0 6px; letter-spacing:.2px; }
+    .muted { font-size:12px; color:#666; line-height:1.45; }
+    .tag { margin-top:8px; font-size:11px; background:#f3f4f6; padding:6px 8px; border-radius:10px; color:#444; }
+    .hr { border-top:1px dashed #d9d9d9; margin:10px 0; }
+    .row { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #f1f1f1; }
+    .row:last-child { border-bottom:0; }
+    .name { font-size:13px; font-weight:700; }
+    .meta { font-size:12px; color:#666; margin-top:2px; }
+    .right { font-size:13px; font-weight:700; white-space:nowrap; }
+    .tot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:14px; font-weight:900; }
+    .note { margin-top:10px; font-size:12px; color:#333; background:#fafafa; border:1px solid #eee; border-radius:12px; padding:10px; }
+    .btns { display:flex; gap:10px; margin-top:12px; }
+    button { flex:1; border:0; border-radius:12px; padding:10px; font-weight:900; cursor:pointer; }
+    .p { background:#111; color:#fff; }
+    .c { background:#eee; }
     @media print {
-      body { background:#fff; padding:0; }
+      body { background:#fff; }
+      .wrap { padding:0; }
+      .ticket { box-shadow:none; border:0; border-radius:0; width:100%; }
       .btns { display:none; }
-      .card { border:0; }
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Recibo (Boleta Simple)</h1>
-    <div class="muted">
-      Pedido: <b>#${esc(pedidoVisual)}</b><br/>
-      Fecha: ${esc(fecha.toLocaleString())}<br/>
-      ${note ? `Nota: ${esc(note)}<br/>` : ""}
-      <b>Comprobante interno sin valor fiscal (no SUNAT)</b>
-    </div>
+  <div class="wrap">
+    <div class="ticket">
+      <h1>${esc(restaurantName || "Recibo")}</h1>
+      <div class="muted">
+        Recibo (Boleta Simple)<br/>
+        Pedido: <b>#${esc(pedidoVisual)}</b><br/>
+        Fecha (Perú): ${esc(fechaStr)}<br/>
+      </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Ítem</th>
-          <th style="text-align:center">Cant.</th>
-          <th style="text-align:right">P.Unit</th>
-          <th style="text-align:right">Importe</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
+      <div class="tag">Comprobante interno sin valor fiscal (no SUNAT)</div>
 
-    <div class="tot">
-      <span>Total</span>
-      <span>S/ ${Number(total || 0).toFixed(2)}</span>
-    </div>
+      ${note ? `<div class="note"><b>Nota:</b> ${esc(note)}</div>` : ""}
 
-    <div class="btns">
-      <button class="print" onclick="window.print()">Guardar/Imprimir (PDF)</button>
-      <button class="close" onclick="window.close()">Cerrar</button>
+      <div class="hr"></div>
+
+      ${rows}
+
+      <div class="hr"></div>
+
+      <div class="tot">
+        <span>TOTAL</span>
+        <span>S/ ${Number(total || 0).toFixed(2)}</span>
+      </div>
+
+      <div class="btns">
+        <button class="p" onclick="window.print()">Guardar/Imprimir (PDF)</button>
+        <button class="c" onclick="window.close()">Cerrar</button>
+      </div>
     </div>
   </div>
 </body>
@@ -224,23 +343,13 @@ async function fetchCpePdfFromApisPeru({ restaurantId, raw_request }) {
   if (!APISPERU_BASE) throw new Error("APISPERU_BASE no está configurado.");
 
   const emisor = await getEmisorByRestaurant(restaurantId);
-  const tk =
-    String(emisor?.apiperu_company_token || "").trim() ||
-    APISPERU_FALLBACK_TOKEN;
+  const tk = String(emisor?.apiperu_company_token || "").trim() || APISPERU_FALLBACK_TOKEN;
 
-  if (!tk) {
-    throw new Error(
-      "No hay token de ApisPerú (sunat_emisores.apiperu_company_token ni APISPERU_FALLBACK_TOKEN)."
-    );
-  }
-
+  if (!tk) throw new Error("No hay token de ApisPerú (DB ni APISPERU_FALLBACK_TOKEN).");
   if (!raw_request) throw new Error("CPE sin raw_request.");
 
   const r = await axios.post(`${APISPERU_BASE}/invoice/pdf`, raw_request, {
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${tk}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tk}` },
     responseType: "arraybuffer",
     timeout: 30000,
     validateStatus: () => true,
@@ -249,13 +358,11 @@ async function fetchCpePdfFromApisPeru({ restaurantId, raw_request }) {
   if (r.status >= 200 && r.status < 300) return r.data;
 
   let msg = `ApisPerú respondió ${r.status}`;
-  try {
-    msg += `: ${Buffer.from(r.data || []).toString("utf8").slice(0, 300)}`;
-  } catch {}
+  try { msg += `: ${Buffer.from(r.data || []).toString("utf8").slice(0, 300)}`; } catch {}
   throw new Error(msg);
 }
 
-/* ===================== Handlers internos (sin router.handle raro) ===================== */
+/* ===================== Handlers ===================== */
 
 async function handleCpePdf(req, res, pedidoId, pedPreloaded = null) {
   const ped = pedPreloaded || (await getPedidoById(pedidoId));
@@ -285,42 +392,68 @@ async function handleCpePdf(req, res, pedidoId, pedPreloaded = null) {
   return sendPdfInline(res, pdfBuf, `CPE-${pedidoId}.pdf`);
 }
 
-async function handleReciboPdf(req, res, pedidoId, pedPreloaded = null) {
-  // 1) si ya existe en cpe_documents, devolvemos eso
-  const doc = await getReciboSimpleByPedidoId(pedidoId);
+async function handleReciboPdf(req, res, pedidoId) {
+  const existing = await getReciboSimpleByPedidoId(pedidoId);
 
-  if (doc?.pdf_url) return res.redirect(doc.pdf_url);
-
-  if (doc?.raw_request) {
-    if (typeof doc.raw_request === "string") {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.status(200).send(doc.raw_request);
-    }
-    // jsonb object (debug útil)
-    return res.status(200).json({ ok: true, raw_request: doc.raw_request });
-  }
-
-  // 2) si NO existe, lo generamos desde la BD y lo guardamos
-  const pedFull = pedPreloaded ? await getPedidoFull(pedidoId) : await getPedidoFull(pedidoId);
+  const pedFull = await getPedidoFull(pedidoId);
   if (!pedFull) return jsonError(res, 404, "Pedido no encontrado");
 
-  const { rows } = await getPedidoItems(pedidoId);
-  const items = normalizeItems(rows);
+  const restaurantId = Number(pedFull.restaurant_id || 0) || null;
+  const restaurantName = await getRestaurantName(restaurantId);
 
-  const html = buildReciboHtml({ ped: pedFull, items });
+  // ✅ En tu esquema, el “número visible” es order_no
+  const pedidoVisual = String(pedFull.order_no ?? pedFull.id ?? pedidoId);
+  const fechaStr = formatLima(pedFull.created_at || new Date().toISOString());
+  const note = pedFull.note || "";
 
-  // Guardar para futuras descargas:
-  // OJO: en cpe_documents suelen ser NOT NULL: tipo_doc, serie, correlativo.
+  // ✅ items: primero JSON (si algún día lo guardas), si no, pedido_detalle + combos
+  let items = extractItemsFromPedido(pedFull);
+
+  if (!items.length) {
+    const { detalle, comboItems } = await getPedidoItems(pedidoId);
+    const main = normalizeDetalle(detalle);
+    const combo = normalizeComboItems(comboItems);
+    items = [...main, ...combo];
+  }
+
+  const total = Number(pedFull.total || 0);
+
+  const html = buildReciboHtml({
+    restaurantName,
+    pedidoVisual,
+    fechaStr,
+    items,
+    total,
+    note,
+  });
+
+  // Guardar/actualizar en cpe_documents (best-effort)
   const serie = "R001";
-  const correlativo = pickNumber(pedFull, ["order_no", "numero", "pedido_numero", "id"], Number(pedidoId));
-
-  const restaurantId = Number(pedFull.restaurant_id || pedFull.restaurantId || 0) || null;
-  const total = pickNumber(pedFull, ["total", "monto_total", "importe_total", "amount"], 0);
+  const correlativo = Number(pedFull.order_no || pedidoId);
   const fecha_emision = pedFull.created_at || new Date().toISOString();
 
   try {
-    await supabase.from("cpe_documents").upsert(
-      [
+    if (existing?.id) {
+      await supabase
+        .from("cpe_documents")
+        .update({
+          restaurant_id: restaurantId,
+          pedido_id: Number(pedidoId),
+          tipo_doc: "00",
+          serie,
+          correlativo,
+          fecha_emision,
+          moneda: "PEN",
+          subtotal: null,
+          igv: null,
+          total,
+          estado: "INTERNO",
+          raw_request: html,
+          pdf_url: null,
+        })
+        .eq("id", existing.id);
+    } else {
+      await supabase.from("cpe_documents").insert([
         {
           restaurant_id: restaurantId,
           pedido_id: Number(pedidoId),
@@ -333,13 +466,11 @@ async function handleReciboPdf(req, res, pedidoId, pedPreloaded = null) {
           igv: null,
           total,
           estado: "INTERNO",
-          raw_request: html, // se guarda como jsonb-string o text según tu esquema
-          raw_response: null,
+          raw_request: html,
           pdf_url: null,
         },
-      ],
-      { onConflict: "pedido_id" }
-    );
+      ]);
+    }
   } catch (e) {
     console.warn("[recibo] No se pudo guardar cpe_documents (igual devolvemos HTML):", e.message);
   }
@@ -348,11 +479,8 @@ async function handleReciboPdf(req, res, pedidoId, pedPreloaded = null) {
   return res.status(200).send(html);
 }
 
-/* ===================== Rutas públicas ===================== */
+/* ===================== Routes ===================== */
 
-/**
- * GET /public/restaurants/:id/settings
- */
 router.get("/public/restaurants/:id/settings", async (req, res) => {
   try {
     noStore(res);
@@ -371,41 +499,38 @@ router.get("/public/restaurants/:id/settings", async (req, res) => {
 
     const billingMode = String(rest?.billing_mode || "none").toLowerCase();
 
-    const settings = {
-      billingMode, // 'sunat' | 'simple' | 'none' (tu front usa allowSunat=billingMode==='sunat')
-      defaultComprobante: "03",
-      series: {
-        "01": emisor.factura_serie || "F001",
-        "03": emisor.boleta_serie || "B001",
-      },
-      company: {
-        ruc: emisor.ruc,
-        razonSocial: emisor.razon_social,
-        nombreComercial: emisor.nombre_comercial || emisor.razon_social,
-        address: {
-          ubigeo: emisor.ubigeo || "",
-          departamento: emisor.departamento || "",
-          provincia: emisor.provincia || "",
-          distrito: emisor.distrito || "",
-          direccion: emisor.direccion || "",
-          urbanizacion: emisor.urbanizacion || "",
+    return res.json({
+      ok: true,
+      settings: {
+        billingMode,
+        defaultComprobante: "03",
+        series: {
+          "01": emisor.factura_serie || "F001",
+          "03": emisor.boleta_serie || "B001",
+        },
+        company: {
+          ruc: emisor.ruc,
+          razonSocial: emisor.razon_social,
+          nombreComercial: emisor.nombre_comercial || emisor.razon_social,
+          address: {
+            ubigeo: emisor.ubigeo || "",
+            departamento: emisor.departamento || "",
+            provincia: emisor.provincia || "",
+            distrito: emisor.distrito || "",
+            direccion: emisor.direccion || "",
+            urbanizacion: emisor.urbanizacion || "",
+          },
         },
       },
-    };
-
-    return res.json({ ok: true, settings });
+    });
   } catch (e) {
     return jsonError(res, 404, e.message);
   }
 });
 
-/**
- * GET /public/pedidos/:id/cpe/pdf
- */
 router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
   try {
     noStore(res);
-
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
 
@@ -417,17 +542,11 @@ router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
   }
 });
 
-/**
- * GET /public/pedidos/:id/recibo/pdf
- * ✅ Si no existe, lo genera y lo guarda.
- */
 router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
   try {
     noStore(res);
-
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
-
     return await handleReciboPdf(req, res, pedidoId);
   } catch (e) {
     console.error("[public.recibo.pdf] error:", e);
@@ -435,15 +554,9 @@ router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
   }
 });
 
-/**
- * GET /public/pedidos/:id/comprobante/pdf
- * - Si tiene cpe_id -> CPE
- * - Si no -> recibo simple (y si no existe, lo genera)
- */
 router.get("/public/pedidos/:id/comprobante/pdf", async (req, res) => {
   try {
     noStore(res);
-
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
 
@@ -451,7 +564,7 @@ router.get("/public/pedidos/:id/comprobante/pdf", async (req, res) => {
     if (!ped) return jsonError(res, 404, "Pedido no encontrado");
 
     if (ped.cpe_id) return await handleCpePdf(req, res, pedidoId, ped);
-    return await handleReciboPdf(req, res, pedidoId, ped);
+    return await handleReciboPdf(req, res, pedidoId);
   } catch (e) {
     console.error("[public.comprobante.pdf] error:", e);
     return jsonError(res, 500, e.message);
