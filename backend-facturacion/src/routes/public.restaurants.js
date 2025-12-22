@@ -84,7 +84,7 @@ async function getPedidoById(pedidoId) {
   const { data: ped, error } = await supabase
     .from("pedidos")
     .select("id, restaurant_id, cpe_id, order_no, total, created_at, note, comprobante_tipo")
-    .eq("id", pedidoId)
+    .eq("id", Number(pedidoId))
     .maybeSingle();
   if (error) throw error;
   return ped;
@@ -94,7 +94,7 @@ async function getPedidoFull(pedidoId) {
   const { data: ped, error } = await supabase
     .from("pedidos")
     .select("*")
-    .eq("id", pedidoId)
+    .eq("id", Number(pedidoId))
     .maybeSingle();
   if (error) throw error;
   return ped;
@@ -114,10 +114,11 @@ async function getReciboSimpleByPedidoId(pedidoId) {
   const { data, error } = await supabase
     .from("cpe_documents")
     .select("id, pdf_url, raw_request, tipo_doc, estado, pedido_id, restaurant_id, created_at")
-    .eq("pedido_id", pedidoId)
+    .eq("pedido_id", Number(pedidoId))
     .eq("tipo_doc", "00")
     .order("created_at", { ascending: false })
     .limit(1);
+
   if (error) throw error;
   return Array.isArray(data) && data.length ? data[0] : null;
 }
@@ -138,8 +139,8 @@ async function getRestaurantName(restaurantId) {
 
 /**
  * ✅ Tus tablas reales:
- * - pedido_detalle (seguro)
- * - pedido_detalle_combo_items (si existe relación, lo intentamos)
+ * - pedido_detalle
+ * - pedido_detalle_combo_items
  */
 async function getPedidoItems(pedidoId) {
   // 1) detalle principal
@@ -211,7 +212,7 @@ function normalizeDetalle(rows) {
 }
 
 function normalizeComboItems(rows) {
-  // Importante: no sumamos al total (solo informativo)
+  // Informativo, no suma al total (precio 0)
   return (rows || []).map((r) => {
     const name = pickString(
       r,
@@ -223,7 +224,7 @@ function normalizeComboItems(rows) {
   });
 }
 
-// Si algún día guardas items como JSON dentro de pedidos, acá lo soportamos también:
+// Soporte si algún día guardas items como JSON en pedidos
 function extractItemsFromPedido(ped) {
   const candidates = ["items", "detalle", "order_summary", "cart", "line_items", "productos"];
   for (const key of candidates) {
@@ -248,6 +249,7 @@ function buildReciboHtml({ restaurantName, pedidoVisual, fechaStr, items, total,
           const qty = Number(it.qty || 1);
           const price = Number(it.price || 0);
           const sub = qty * price;
+
           return `
             <div class="row">
               <div class="left">
@@ -261,51 +263,25 @@ function buildReciboHtml({ restaurantName, pedidoVisual, fechaStr, items, total,
         .join("")
     : `<div class="muted">Sin ítems (no hay filas en pedido_detalle para este pedido).</div>`;
 
+  // ✅ IMPORTANTE CSP:
+  // - NO <style> inline
+  // - NO onclick inline
+  // - CSS y JS desde /public/assets (self)
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Recibo #${esc(pedidoVisual)}</title>
-  <style>
-    :root { --w: 400px; }
-    body { margin:0; background:#f5f6f7; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
-    .wrap { min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:16px; }
-    .ticket {
-      width: min(var(--w), 100%);
-      background:#fff;
-      border:1px solid #e7e7e7;
-      border-radius:14px;
-      padding:14px 14px 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.06);
-    }
-    h1 { font-size:18px; margin:0 0 6px; letter-spacing:.2px; }
-    .muted { font-size:12px; color:#666; line-height:1.45; }
-    .tag { margin-top:8px; font-size:11px; background:#f3f4f6; padding:6px 8px; border-radius:10px; color:#444; }
-    .hr { border-top:1px dashed #d9d9d9; margin:10px 0; }
-    .row { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #f1f1f1; }
-    .row:last-child { border-bottom:0; }
-    .name { font-size:13px; font-weight:700; }
-    .meta { font-size:12px; color:#666; margin-top:2px; }
-    .right { font-size:13px; font-weight:700; white-space:nowrap; }
-    .tot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:14px; font-weight:900; }
-    .note { margin-top:10px; font-size:12px; color:#333; background:#fafafa; border:1px solid #eee; border-radius:12px; padding:10px; }
-    .btns { display:flex; gap:10px; margin-top:12px; }
-    button { flex:1; border:0; border-radius:12px; padding:10px; font-weight:900; cursor:pointer; }
-    .p { background:#111; color:#fff; }
-    .c { background:#eee; }
-    @media print {
-      body { background:#fff; }
-      .wrap { padding:0; }
-      .ticket { box-shadow:none; border:0; border-radius:0; width:100%; }
-      .btns { display:none; }
-    }
-  </style>
+
+  <link rel="stylesheet" href="/public/assets/recibo.css">
+  <script defer src="/public/assets/recibo.js"></script>
 </head>
 <body>
   <div class="wrap">
     <div class="ticket">
       <h1>${esc(restaurantName || "Recibo")}</h1>
+
       <div class="muted">
         Recibo (Boleta Simple)<br/>
         Pedido: <b>#${esc(pedidoVisual)}</b><br/>
@@ -328,8 +304,8 @@ function buildReciboHtml({ restaurantName, pedidoVisual, fechaStr, items, total,
       </div>
 
       <div class="btns">
-        <button class="p" onclick="window.print()">Guardar/Imprimir (PDF)</button>
-        <button class="c" onclick="window.close()">Cerrar</button>
+        <button class="p" data-action="print">Guardar/Imprimir (PDF)</button>
+        <button class="c" data-action="close">Cerrar</button>
       </div>
     </div>
   </div>
@@ -358,7 +334,9 @@ async function fetchCpePdfFromApisPeru({ restaurantId, raw_request }) {
   if (r.status >= 200 && r.status < 300) return r.data;
 
   let msg = `ApisPerú respondió ${r.status}`;
-  try { msg += `: ${Buffer.from(r.data || []).toString("utf8").slice(0, 300)}`; } catch {}
+  try {
+    msg += `: ${Buffer.from(r.data || []).toString("utf8").slice(0, 300)}`;
+  } catch {}
   throw new Error(msg);
 }
 
@@ -393,6 +371,7 @@ async function handleCpePdf(req, res, pedidoId, pedPreloaded = null) {
 }
 
 async function handleReciboPdf(req, res, pedidoId) {
+  // Solo para actualizar el mismo registro si existe
   const existing = await getReciboSimpleByPedidoId(pedidoId);
 
   const pedFull = await getPedidoFull(pedidoId);
@@ -403,10 +382,12 @@ async function handleReciboPdf(req, res, pedidoId) {
 
   // ✅ En tu esquema, el “número visible” es order_no
   const pedidoVisual = String(pedFull.order_no ?? pedFull.id ?? pedidoId);
+
+  // ✅ Hora Perú
   const fechaStr = formatLima(pedFull.created_at || new Date().toISOString());
   const note = pedFull.note || "";
 
-  // ✅ items: primero JSON (si algún día lo guardas), si no, pedido_detalle + combos
+  // ✅ items: JSON (si existiera) -> si no: pedido_detalle + combos
   let items = extractItemsFromPedido(pedFull);
 
   if (!items.length) {
@@ -531,6 +512,7 @@ router.get("/public/restaurants/:id/settings", async (req, res) => {
 router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
   try {
     noStore(res);
+
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
 
@@ -545,8 +527,10 @@ router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
 router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
   try {
     noStore(res);
+
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
+
     return await handleReciboPdf(req, res, pedidoId);
   } catch (e) {
     console.error("[public.recibo.pdf] error:", e);
@@ -557,6 +541,7 @@ router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
 router.get("/public/pedidos/:id/comprobante/pdf", async (req, res) => {
   try {
     noStore(res);
+
     const pedidoId = Number(req.params.id);
     if (!pedidoId) return jsonError(res, 400, "pedidoId inválido");
 
