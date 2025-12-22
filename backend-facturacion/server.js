@@ -2,6 +2,7 @@
 require("dotenv").config();
 
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -30,6 +31,10 @@ const adminCashRoutes = require("./src/routes/admin.cash");
 const adminFacturacionRoutes = require("./src/routes/admin.facturacion");
 
 const app = express();
+app.use(
+  "/public/assets",
+  express.static(path.join(__dirname, "src", "public_assets"))
+);
 
 /* ---------- Base app ---------- */
 
