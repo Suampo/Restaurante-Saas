@@ -18,7 +18,7 @@ function noStore(res) {
 async function getPedidoById(pedidoId) {
   const { data: ped, error } = await supabase
     .from("pedidos")
-    .select("id, cpe_id")
+    .select("id, restaurant_id, cpe_id")
     .eq("id", pedidoId)
     .maybeSingle();
   if (error) throw error;
@@ -28,7 +28,7 @@ async function getPedidoById(pedidoId) {
 async function getCpeById(cpeId) {
   const { data: cpe, error } = await supabase
     .from("cpe_documents")
-    .select("id, token, raw_request, pdf_url, tipo_doc, estado, pedido_id, restaurant_id")
+    .select("id, raw_request, pdf_url, tipo_doc, estado, pedido_id, restaurant_id")
     .eq("id", cpeId)
     .maybeSingle();
   if (error) throw error;
@@ -36,8 +36,7 @@ async function getCpeById(cpeId) {
 }
 
 async function getReciboSimpleByPedidoId(pedidoId) {
-  // En tu código, el recibo simple se guarda en cpe_documents con:
-  // tipo_doc = '00', estado = 'INTERNO', y pdf_url (public url)
+  // Recibo simple guardado en cpe_documents con tipo_doc='00'
   const { data, error } = await supabase
     .from("cpe_documents")
     .select("id, pdf_url, raw_request, tipo_doc, estado, pedido_id, created_at")
@@ -50,17 +49,21 @@ async function getReciboSimpleByPedidoId(pedidoId) {
   return Array.isArray(data) && data.length ? data[0] : null;
 }
 
-async function fetchCpePdfFromApisPeru({ token, raw_request }) {
-  if (!APISPERU_BASE) {
-    throw new Error("APISPERU_BASE no está configurado.");
-  }
-  const tk = token || APISPERU_FALLBACK_TOKEN;
+async function fetchCpePdfFromApisPeru({ restaurantId, raw_request }) {
+  if (!APISPERU_BASE) throw new Error("APISPERU_BASE no está configurado.");
+
+  // Token correcto sale de sunat_emisores via getEmisorByRestaurant
+  const emisor = await getEmisorByRestaurant(restaurantId);
+  const tk =
+    String(emisor?.apiperu_company_token || "").trim() ||
+    APISPERU_FALLBACK_TOKEN;
+
   if (!tk) {
-    throw new Error("No hay token de ApisPerú (token del CPE ni APISPERU_FALLBACK_TOKEN).");
+    throw new Error(
+      "No hay token de ApisPerú (sunat_emisores.apiperu_company_token ni APISPERU_FALLBACK_TOKEN)."
+    );
   }
-  if (!raw_request) {
-    throw new Error("CPE sin raw_request.");
-  }
+  if (!raw_request) throw new Error("CPE sin raw_request.");
 
   const r = await axios.post(`${APISPERU_BASE}/invoice/pdf`, raw_request, {
     headers: {
@@ -72,24 +75,19 @@ async function fetchCpePdfFromApisPeru({ token, raw_request }) {
     validateStatus: () => true,
   });
 
-  if (r.status >= 200 && r.status < 300) {
-    return r.data; // Buffer (arraybuffer)
-  }
+  if (r.status >= 200 && r.status < 300) return r.data;
 
-  // intenta leer error json si existe
   let msg = `ApisPerú respondió ${r.status}`;
   try {
-    const asText = Buffer.from(r.data || []).toString("utf8");
-    msg = `${msg}: ${asText.slice(0, 300)}`;
+    msg += `: ${Buffer.from(r.data || []).toString("utf8").slice(0, 300)}`;
   } catch {}
   throw new Error(msg);
 }
 
-/* ===================== EXISTENTE (PÚBLICO) ===================== */
+/* ===================== SETTINGS PÚBLICO ===================== */
 /**
  * GET /public/restaurants/:id/settings
- * Devuelve settings para facturación + billingMode (sunat|none)
- * (SIN CULQI)
+ * Devuelve settings para facturación + billingMode
  */
 router.get("/public/restaurants/:id/settings", async (req, res) => {
   try {
@@ -100,7 +98,6 @@ router.get("/public/restaurants/:id/settings", async (req, res) => {
 
     const emisor = await getEmisorByRestaurant(restaurantId);
 
-    // Leer billing_mode desde la tabla restaurantes
     const { data: rest, error } = await supabase
       .from("restaurantes")
       .select("billing_mode")
@@ -111,7 +108,7 @@ router.get("/public/restaurants/:id/settings", async (req, res) => {
     const billingMode = String(rest?.billing_mode || "none").toLowerCase();
 
     const settings = {
-      billingMode, // 'sunat' | 'none'
+      billingMode, // 'sunat' | 'simple' | 'none'
       defaultComprobante: "03",
       series: {
         "01": emisor.factura_serie || "F001",
@@ -138,10 +135,9 @@ router.get("/public/restaurants/:id/settings", async (req, res) => {
   }
 });
 
-/* ===================== NUEVO: CPE PDF PÚBLICO ===================== */
+/* ===================== CPE PDF PÚBLICO ===================== */
 /**
  * GET /public/pedidos/:id/cpe/pdf
- * - Busca pedido.cpe_id
  * - Si cpe.pdf_url existe -> redirect
  * - Si no -> pide PDF a ApisPerú y lo responde inline
  */
@@ -165,20 +161,16 @@ router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
     const cpe = await getCpeById(ped.cpe_id);
     if (!cpe) return res.status(404).json({ ok: false, error: "CPE no encontrado" });
 
-    if (cpe.pdf_url) {
-      return res.redirect(cpe.pdf_url);
-    }
+    if (cpe.pdf_url) return res.redirect(cpe.pdf_url);
 
+    // ✅ CORRECTO: usa restaurantId del pedido (o del cpe) + raw_request
     const pdfBuf = await fetchCpePdfFromApisPeru({
-      token: cpe.token,
+      restaurantId: ped.restaurant_id || cpe.restaurant_id,
       raw_request: cpe.raw_request,
     });
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="CPE-${pedidoId}.pdf"`
-    );
+    res.setHeader("Content-Disposition", `inline; filename="CPE-${pedidoId}.pdf"`);
     return res.status(200).send(Buffer.from(pdfBuf));
   } catch (e) {
     console.error("[public.cpe.pdf] error:", e);
@@ -186,7 +178,7 @@ router.get("/public/pedidos/:id/cpe/pdf", async (req, res) => {
   }
 });
 
-/* ===================== NUEVO: RECIBO SIMPLE (BOLETA SIMPLE) ===================== */
+/* ===================== RECIBO SIMPLE (BOLETA SIMPLE) ===================== */
 /**
  * GET /public/pedidos/:id/recibo/pdf
  * - Busca el último cpe_documents tipo_doc='00' del pedido
@@ -208,11 +200,8 @@ router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
       });
     }
 
-    if (doc.pdf_url) {
-      return res.redirect(doc.pdf_url);
-    }
+    if (doc.pdf_url) return res.redirect(doc.pdf_url);
 
-    // Fallback: si por algún motivo se guardó HTML en raw_request
     if (doc.raw_request) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(String(doc.raw_request));
@@ -228,7 +217,7 @@ router.get("/public/pedidos/:id/recibo/pdf", async (req, res) => {
   }
 });
 
-/* ===================== NUEVO: ENDPOINT UNIFICADO ===================== */
+/* ===================== ENDPOINT UNIFICADO ===================== */
 /**
  * GET /public/pedidos/:id/comprobante/pdf
  * - Si el pedido tiene cpe_id -> devuelve CPE
@@ -245,7 +234,6 @@ router.get("/public/pedidos/:id/comprobante/pdf", async (req, res) => {
     if (!ped) return res.status(404).json({ ok: false, error: "Pedido no encontrado" });
 
     if (ped.cpe_id) {
-      // Reusar lógica llamando “internamente”
       req.url = `/public/pedidos/${pedidoId}/cpe/pdf`;
       return router.handle(req, res);
     }
